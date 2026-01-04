@@ -1,0 +1,2 @@
+# -Explainable-AI-for-Smart-Agriculture-for-croprecomendation-Yield-forecasting-and-rainfallprediction
+This repo hosts an XAI-powered Smart Agriculture framework for crop recommendation, yield forecasting, and rainfall prediction. Built with XLNet, Transformers, and EBMO, it improves accuracy by 15%. The system uses SHAP and LIME to provide transparent, actionable insights for farmers and policymakers.
