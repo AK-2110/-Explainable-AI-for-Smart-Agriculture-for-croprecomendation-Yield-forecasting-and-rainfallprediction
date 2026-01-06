@@ -67,14 +67,111 @@ def main():
 import random
 
 def get_live_weather(location):
-    """Simulate fetching live data."""
-    return {
-        'temp': round(random.uniform(20.0, 35.0), 1),
-        'hum': round(random.uniform(40.0, 90.0), 1),
-        'rain': round(random.uniform(50.0, 250.0), 1),
-        'wind': round(random.uniform(5.0, 25.0), 1),
-        'press': round(random.uniform(995.0, 1020.0), 1)
+    """
+    Simulate fetching live data based on location.
+    Uses hashing to ensure the same location always yields the same 'live' data
+    (unless the user changes parameters manually).
+    """
+    loc_lower = location.lower().strip()
+    
+    # 1. Known Profiles for Realism (Mock Database)
+    weather_db = {
+        'delhi': {'temp': 32.0, 'hum': 40.0, 'rain': 60.0, 'wind': 15.0, 'press': 1005.0},
+        'new delhi': {'temp': 33.0, 'hum': 38.0, 'rain': 55.0, 'wind': 14.0, 'press': 1004.0},
+        'mumbai': {'temp': 28.0, 'hum': 85.0, 'rain': 300.0, 'wind': 20.0, 'press': 1008.0},
+        'pune': {'temp': 27.0, 'hum': 60.0, 'rain': 100.0, 'wind': 12.0, 'press': 1010.0},
+        'nagpur': {'temp': 35.0, 'hum': 45.0, 'rain': 110.0, 'wind': 10.0, 'press': 1002.0},
+        'chennai': {'temp': 30.0, 'hum': 80.0, 'rain': 200.0, 'wind': 25.0, 'press': 1006.0},
+        'kolkata': {'temp': 29.0, 'hum': 82.0, 'rain': 250.0, 'wind': 18.0, 'press': 1000.0},
+        'bangalore': {'temp': 24.0, 'hum': 65.0, 'rain': 120.0, 'wind': 15.0, 'press': 1012.0},
+        'hyderabad': {'temp': 30.0, 'hum': 55.0, 'rain': 80.0, 'wind': 12.0, 'press': 1009.0},
+        'jaipur': {'temp': 36.0, 'hum': 30.0, 'rain': 40.0, 'wind': 12.0, 'press': 1003.0},
     }
+    
+    if loc_lower in weather_db:
+        base = weather_db[loc_lower]
+        # Add tiny jitter so it feels "live" but stays consistent to region
+        random.seed(42) # Fixed jitter for demo stability
+        return {
+            'temp': base['temp'] + round(random.uniform(-1, 1), 1),
+            'hum': base['hum'] + round(random.uniform(-2, 2), 1),
+            'rain': base['rain'] + round(random.uniform(-5, 5), 1),
+            'wind': base['wind'] + round(random.uniform(-1, 1), 1),
+            'press': base['press'] + round(random.uniform(-1, 1), 1)
+        }
+    
+    # 2. Unknown Location: Deterministic Random based on Name
+    # This ensures "Srinagar" always gives Cold, "Jaisalmer" gives Hot (if lucky with hash)
+    # But mainly it ensures consistency.
+    else:
+        # Create a seed from the city name
+        seed_val = sum(ord(c) for c in loc_lower)
+        random.seed(seed_val)
+        
+        return {
+            'temp': round(random.uniform(20.0, 35.0), 1),
+            'hum': round(random.uniform(40.0, 90.0), 1),
+            'rain': round(random.uniform(50.0, 250.0), 1),
+            'wind': round(random.uniform(5.0, 25.0), 1),
+            'press': round(random.uniform(995.0, 1020.0), 1)
+        }
+
+def display_preventive_measures(rain, temp, hum):
+    """Displays risk warnings and preventive measures based on climatic conditions."""
+    st.markdown("### 🛡️ Climate Risk & Preventive Measures")
+    
+    risks_found = False
+    
+    # 1. Drought / Low Water
+    if rain < 300: # Threshold for concern
+        st.warning("⚠️ **Risk: Low Rainfall / Drought Conditions**")
+        st.markdown("""
+        *   **Irrigation**: Adopt drip or sprinkler irrigation to maximize water efficiency.
+        *   **Mulching**: Cover soil with organic mulch to reduce evaporation.
+        *   **Variety Selection**: Choose drought-resistant crop varieties.
+        """)
+        risks_found = True
+        
+    # 2. Flood / Excess Water
+    elif rain > 2000:
+        st.warning("⚠️ **Risk: Heavy Rainfall / Flood Prone**")
+        st.markdown("""
+        *   **Drainage**: Ensure proper field drainage channels to prevent waterlogging.
+        *   **Raised Beds**: Plant crops on raised beds to keep roots aerated.
+        *   **Harvesting**: If crop is mature, harvest immediately to prevent spoilage.
+        """)
+        risks_found = True
+
+    # 3. Heat Stress
+    if temp > 35:
+        st.warning("⚠️ **Risk: High Temperature / Heat Stress**")
+        st.markdown("""
+        *   **Irrigation**: Frequent light irrigation during cooler hours (evening/early morning).
+        *   **Shade**: Use shade nets or intercropping with taller plants to protect sensitive crops.
+        """)
+        risks_found = True
+        
+    # 4. Cold Stress
+    elif temp < 10:
+        st.warning("⚠️ **Risk: Low Temperature / Frost Damage**")
+        st.markdown("""
+        *   **Protective Cover**: Use row covers or tunnels to retain heat.
+        *   **Irrigation**: Irrigate late in the evening; moist soil holds heat better than dry soil.
+        *   **Smoke**: Controlled smoking around the field can prevent frost formation.
+        """)
+        risks_found = True
+
+    # 5. Disease Risk (High Humidity)
+    if hum > 85:
+        st.warning("⚠️ **Risk: High Humidity (Fungal Disease Risk)**")
+        st.markdown("""
+        *   **Spacing**: Ensure wider plant spacing for air circulation.
+        *   **Monitoring**: Check daily for fungal spots or mold. Apply fungicides preventively if needed.
+        """)
+        risks_found = True
+        
+    if not risks_found:
+        st.success("✅ **Climate Conditions are Favorable.** No extreme warnings detected.")
 
 def run_crop_recommendation(preprocessor, model, ebmo):
     st.header("🌱 Crop Recommendation System")
@@ -101,15 +198,15 @@ def run_crop_recommendation(preprocessor, model, ebmo):
     with col1:
         st.subheader("Soil Parameters")
         n = st.number_input("Nitrogen (N)", 0, 140, 90)
-        p = st.number_input("Phosphorous (P)", 5, 145, 40)
-        k = st.number_input("Potassium (K)", 5, 205, 40)
-        ph = st.number_input("pH Level", 3.5, 9.9, 6.5)
+        p = st.number_input("Phosphorous (P)", 0, 145, 40)
+        k = st.number_input("Potassium (K)", 0, 205, 40)
+        ph = st.number_input("pH Level", 0.0, 14.0, 6.5)
         
     with col2:
         st.subheader("Weather Parameters")
-        temp = st.number_input("Temperature (°C)", 8.0, 45.0, key='c_temp')
-        humidity = st.number_input("Humidity (%)", 14.0, 100.0, key='c_hum')
-        rainfall = st.number_input("Rainfall (mm)", 20.0, 300.0, key='c_rain')
+        temp = st.number_input("Temperature (°C)", 0.0, 50.0, key='c_temp')
+        humidity = st.number_input("Humidity (%)", 0.0, 100.0, key='c_hum')
+        rainfall = st.number_input("Rainfall (mm)", 0.0, 500.0, key='c_rain')
         
     # User Request: Use previous year crop data
     st.subheader("Farming History")
@@ -126,9 +223,18 @@ def run_crop_recommendation(preprocessor, model, ebmo):
                 'label': ['dummy'] # Placeholder
             })
             
+            # CRITICAL FIX: Scale the input using the same scaler as training
+            numeric_cols = ['N', 'P', 'K', 'temperature', 'humidity', 'ph', 'rainfall']
+            if 'tabular_num' in preprocessor.scalers:
+                scaler = preprocessor.scalers['tabular_num']
+                # Transform only the numeric columns
+                input_data[numeric_cols] = scaler.transform(input_data[numeric_cols])
+            else:
+                st.warning("⚠️ Scaler not found: Predictions might be inaccurate (using raw values).")
+
             # 1. Feature Extraction (XLNet)
             extractor = XLNetFeatureExtractor()
-            texts = extractor.tabular_to_text(input_data, ['N', 'P', 'K', 'temperature', 'humidity', 'ph', 'rainfall'])
+            texts = extractor.tabular_to_text(input_data, numeric_cols)
             features = extractor.extract_features(texts) # Shape (1, 768)
             
             # 2. Feature Selection (EBMO)
@@ -291,6 +397,10 @@ def run_crop_recommendation(preprocessor, model, ebmo):
             
             st.pyplot(fig)
             plt.close(fig)
+            
+            # C. Preventive Measures
+            st.write("---")
+            display_preventive_measures(rainfall, temp, humidity)
 
 def run_yield_forecasting(preprocessor, model):
     st.header("📈 Yield Forecasting")
@@ -311,15 +421,18 @@ def run_yield_forecasting(preprocessor, model):
             st.session_state['y_temp'] = w['temp']
             st.toast("Fetch Complete!")
 
-    rain = st.number_input("Average Rainfall (mm/year)", 100.0, 3000.0, key='y_rain')
+    rain = st.number_input("Average Rainfall (mm/year)", 0.0, 3000.0, key='y_rain')
     pest = st.number_input("Pesticides (tonnes)", 0.0, 1000.0, 50.0)
-    temp = st.number_input("Average Temp (°C)", 5.0, 40.0, key='y_temp')
-    area = st.number_input("Area (hectares)", 1000.0, 100000.0, 50000.0)
+    temp = st.number_input("Average Temp (°C)", 0.0, 50.0, key='y_temp')
+    area_acres = st.number_input("Area (Acres)", 0.0, 100000.0, 100.0)
     
     if st.button("Forecast Yield"):
         # Sequence creation: repeat input x 3 timestamps
         # Shape must be (1, 3, 5) because model was trained on 5 features (including target)
         scaler = preprocessor.scalers.get('yield_amount')
+        
+        # Convert Acres to Hectares for Model Compatibility (1 Acre = 0.404686 Hectare)
+        area_ha = area_acres * 0.404686
         
         if scaler:
             # Input order: ['average_rain', 'pesticides_tonnes', 'avg_temp', 'area', 'yield_amount']
@@ -333,7 +446,7 @@ def run_yield_forecasting(preprocessor, model):
             # But the scaler handles normalization.
             prev_yield = st.number_input("Prior Year Yield (HG/HA)", 0.0, 100000.0, 20000.0)
             
-            raw_input = np.array([[rain, pest, temp, area, prev_yield]])
+            raw_input = np.array([[rain, pest, temp, area_ha, prev_yield]])
             scaled_input = scaler.transform(raw_input)
             
             # Keep ALL 5 features
@@ -365,6 +478,7 @@ def run_rainfall_prediction(preprocessor, model):
     if 'r_hum' not in st.session_state: st.session_state['r_hum'] = 75.0
     if 'r_wind' not in st.session_state: st.session_state['r_wind'] = 10.0
     if 'r_press' not in st.session_state: st.session_state['r_press'] = 1010.0
+    if 'r_prev_rain' not in st.session_state: st.session_state['r_prev_rain'] = 0.0
     
     c1, c2 = st.columns([3, 1])
     with c1: loc = st.text_input("Geographic Location (City/Region)", "New Delhi")
@@ -377,17 +491,19 @@ def run_rainfall_prediction(preprocessor, model):
             st.session_state['r_hum'] = w['hum']
             st.session_state['r_wind'] = w['wind']
             st.session_state['r_press'] = w['press']
+            # Simulate previous rainfall (e.g., slightly different from current random 'rain' or same)
+            st.session_state['r_prev_rain'] = w['rain'] 
             st.toast("Updated Atmosphere Model!")
     
     col1, col2 = st.columns(2)
     with col1:
-        temp = st.slider("Temperature (°C)", 10.0, 40.0, key='r_temp')
-        hum = st.slider("Humidity (%)", 20.0, 100.0, key='r_hum')
+        temp = st.number_input("Temperature (°C)", 0.0, 50.0, key='r_temp')
+        hum = st.number_input("Humidity (%)", 0.0, 100.0, key='r_hum')
     with col2:
-        wind = st.slider("Wind Speed (km/h)", 0.0, 50.0, key='r_wind')
-        pressure = st.slider("Pressure (hPa)", 980.0, 1050.0, key='r_press')
+        wind = st.number_input("Wind Speed (km/h)", 0.0, 100.0, key='r_wind')
+        pressure = st.number_input("Pressure (hPa)", 900.0, 1100.0, key='r_press')
         
-    prev_rain = st.number_input("Previous Rainfall (mm)", 0.0, 500.0, 0.0)
+    prev_rain = st.number_input("Previous Rainfall (mm)", 0.0, 500.0, key='r_prev_rain')
     
     if st.button("Predict Rainfall"):
         scaler = preprocessor.scalers.get('Rainfall')
