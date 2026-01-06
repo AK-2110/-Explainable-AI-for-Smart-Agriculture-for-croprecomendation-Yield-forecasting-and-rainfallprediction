@@ -2,57 +2,67 @@ import numpy as np
 import pandas as pd
 import os
 
-def generate_crop_data(n_samples=1000):
+def generate_crop_data(n_samples=2000): # Increased samples
     """
-    Generates synthetic data for Crop Recommendation.
-    Features: N, P, K, temperature, humidity, ph, rainfall
-    Target: label (Rice, Maize, Chickpea, Kidneybeans, Pigeonpeas, Mothbeans, Mungbean, Blackgram, Lentil, Pomegranate, Banana, Mango, Grapes, Watermelon, Muskmelon, Apple, Orange, Papaya, Coconut, Cotton, Jute, Coffee)
+    Generates synthetic data for Crop Recommendation with distinct clusters.
     """
     np.random.seed(42)
     
-    crops = ['Rice', 'Maize', 'Chickpea', 'Kidneybeans', 'Pigeonpeas', 'Mothbeans', 'Mungbean', 'Blackgram', 'Lentil', 'Pomegranate', 'Banana', 'Mango', 'Grapes', 'Watermelon', 'Muskmelon', 'Apple', 'Orange', 'Papaya', 'Coconut', 'Cotton', 'Jute', 'Coffee']
+    # Specific Clusters to ensure model learns distinctions
+    crops_clusters = {
+        'Rice':         {'N': (60, 90), 'P': (35, 60), 'K': (35, 45), 'temp': (20, 28), 'hum': (80, 90), 'ph': (6.0, 7.0), 'rain': (180, 300)}, # Wet
+        'Maize':        {'N': (60, 100), 'P': (40, 60), 'K': (15, 25), 'temp': (18, 28), 'hum': (50, 70), 'ph': (5.5, 7.0), 'rain': (60, 110)},  # Moderate
+        'Chickpea':     {'N': (20, 60), 'P': (55, 80), 'K': (75, 85), 'temp': (17, 22), 'hum': (15, 20), 'ph': (6.0, 8.0), 'rain': (30, 60)},    # Dry/Cool
+        'Kidneybeans':  {'N': (10, 40), 'P': (55, 80), 'K': (15, 25), 'temp': (15, 25), 'hum': (20, 30), 'ph': (5.5, 6.0), 'rain': (60, 150)},
+        'Pigeonpeas':   {'N': (10, 40), 'P': (55, 80), 'K': (15, 25), 'temp': (25, 35), 'hum': (40, 70), 'ph': (5.0, 7.0), 'rain': (90, 160)},
+        'Mothbeans':    {'N': (10, 40), 'P': (35, 60), 'K': (15, 25), 'temp': (24, 32), 'hum': (40, 65), 'ph': (4.0, 8.0), 'rain': (30, 80)},  # Hardy
+        'Mungbean':     {'N': (10, 40), 'P': (35, 60), 'K': (15, 25), 'temp': (25, 30), 'hum': (55, 70), 'ph': (6.0, 7.0), 'rain': (40, 70)},
+        'Blackgram':    {'N': (20, 60), 'P': (55, 80), 'K': (15, 25), 'temp': (25, 35), 'hum': (60, 70), 'ph': (6.5, 7.5), 'rain': (60, 75)},
+        'Lentil':       {'N': (10, 30), 'P': (55, 80), 'K': (15, 25), 'temp': (18, 29), 'hum': (60, 70), 'ph': (6.0, 7.5), 'rain': (35, 55)},
+        'Pomegranate':  {'N': (10, 40), 'P': (10, 30), 'K': (35, 45), 'temp': (18, 25), 'hum': (85, 95), 'ph': (5.5, 7.0), 'rain': (100, 120)},
+        'Banana':       {'N': (80, 120), 'P': (70, 95), 'K': (45, 55), 'temp': (25, 30), 'hum': (75, 85), 'ph': (5.5, 6.5), 'rain': (90, 120)},
+        'Mango':        {'N': (10, 40), 'P': (15, 30), 'K': (25, 35), 'temp': (27, 35), 'hum': (45, 55), 'ph': (5.0, 7.0), 'rain': (85, 100)},
+        'Grapes':       {'N': (10, 40), 'P': (120, 145), 'K': (195, 205), 'temp': (10, 40), 'hum': (80, 85), 'ph': (5.5, 6.5), 'rain': (60, 80)}, # High K
+        'Watermelon':   {'N': (80, 120), 'P': (10, 30), 'K': (45, 55), 'temp': (24, 28), 'hum': (80, 90), 'ph': (6.0, 7.0), 'rain': (40, 60)},
+        'Muskmelon':    {'N': (80, 120), 'P': (10, 30), 'K': (45, 55), 'temp': (27, 30), 'hum': (90, 95), 'ph': (6.0, 6.8), 'rain': (20, 30)},
+        'Apple':        {'N': (10, 40), 'P': (120, 145), 'K': (195, 205), 'temp': (21, 24), 'hum': (90, 95), 'ph': (5.5, 6.5), 'rain': (100, 120)}, # Cool
+        'Orange':       {'N': (10, 40), 'P': (10, 30), 'K': (10, 15), 'temp': (10, 35), 'hum': (90, 95), 'ph': (6.0, 7.5), 'rain': (100, 120)},
+        'Papaya':       {'N': (30, 70), 'P': (45, 70), 'K': (45, 60), 'temp': (23, 44), 'hum': (90, 95), 'ph': (6.5, 7.0), 'rain': (40, 250)},
+        'Coconut':      {'N': (10, 40), 'P': (10, 30), 'K': (25, 35), 'temp': (25, 29), 'hum': (90, 95), 'ph': (5.5, 6.5), 'rain': (150, 250)}, # Coastal
+        'Cotton':       {'N': (100, 140), 'P': (35, 60), 'K': (15, 25), 'temp': (22, 26), 'hum': (30, 60), 'ph': (6.0, 8.0), 'rain': (60, 90)}, # Dry/Hot
+        'Jute':         {'N': (60, 90), 'P': (35, 60), 'K': (35, 45), 'temp': (23, 26), 'hum': (70, 90), 'ph': (6.0, 7.5), 'rain': (150, 200)},
+        'Coffee':       {'N': (80, 120), 'P': (15, 30), 'K': (25, 35), 'temp': (23, 27), 'hum': (50, 70), 'ph': (6.0, 7.5), 'rain': (120, 180)}
+    }
     
     data = []
     
-    for crop in crops:
-        # Create varied distributions for different crops to make them distinguishable
-        samples_per_crop = n_samples // len(crops)
+    for crop, limit in crops_clusters.items():
+        n_count = n_samples // len(crops_clusters)
         
-        if crop in ['Rice', 'Jute', 'Coconut']: # High rainfall, high humidity
-            N = np.random.normal(80, 20, samples_per_crop)
-            P = np.random.normal(40, 10, samples_per_crop)
-            K = np.random.normal(40, 10, samples_per_crop)
-            temp = np.random.normal(26, 5, samples_per_crop)
-            hum = np.random.normal(80, 10, samples_per_crop)
-            ph = np.random.normal(6.5, 1, samples_per_crop)
-            rain = np.random.normal(200, 50, samples_per_crop)
-        elif crop in ['Cotton', 'Maize']: # Moderate
-            N = np.random.normal(100, 20, samples_per_crop)
-            P = np.random.normal(50, 10, samples_per_crop)
-            K = np.random.normal(20, 5, samples_per_crop)
-            temp = np.random.normal(30, 5, samples_per_crop)
-            hum = np.random.normal(60, 10, samples_per_crop)
-            ph = np.random.normal(7, 1, samples_per_crop)
-            rain = np.random.normal(80, 20, samples_per_crop)
-        else: # Generic/Dry
-            N = np.random.normal(40, 20, samples_per_crop)
-            P = np.random.normal(60, 20, samples_per_crop)
-            K = np.random.normal(20, 10, samples_per_crop)
-            temp = np.random.normal(25, 7, samples_per_crop)
-            hum = np.random.normal(50, 15, samples_per_crop)
-            ph = np.random.normal(6, 1.5, samples_per_crop)
-            rain = np.random.normal(50, 30, samples_per_crop)
-            
+        # Determine ranges
+        N = np.random.uniform(limit['N'][0], limit['N'][1], n_count)
+        P = np.random.uniform(limit['P'][0], limit['P'][1], n_count)
+        K = np.random.uniform(limit['K'][0], limit['K'][1], n_count)
+        temp = np.random.uniform(limit['temp'][0], limit['temp'][1], n_count)
+        hum = np.random.uniform(limit['hum'][0], limit['hum'][1], n_count)
+        ph = np.random.uniform(limit['ph'][0], limit['ph'][1], n_count)
+        rain = np.random.uniform(limit['rain'][0], limit['rain'][1], n_count)
+        
+        # Add noise
+        N += np.random.normal(0, 5, n_count)
+        temp += np.random.normal(0, 1, n_count)
+        
         crop_data = pd.DataFrame({
-            'N': N, 'P': P, 'K': K,
-            'temperature': temp, 'humidity': hum, 'ph': ph, 'rainfall': rain,
+            'N': N, 'P': P, 'K': K, 
+            'temperature': temp, 'humidity': hum, 
+            'ph': ph, 'rainfall': rain, 
             'label': crop
         })
         data.append(crop_data)
         
     final_df = pd.concat(data).sample(frac=1).reset_index(drop=True)
     
-    # Ensure no negative values
+    # Clip negative values
     cols = ['N', 'P', 'K', 'temperature', 'humidity', 'ph', 'rainfall']
     final_df[cols] = final_df[cols].applymap(lambda x: max(0, x))
     

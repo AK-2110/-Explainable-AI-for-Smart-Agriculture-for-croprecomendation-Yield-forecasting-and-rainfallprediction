@@ -1,4 +1,4 @@
-from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Dense, LSTM, GRU, Input, Dropout, LayerNormalization, MultiHeadAttention, GlobalAveragePooling1D, Reshape
 from tensorflow.keras.optimizers import Adam
@@ -6,7 +6,8 @@ import tensorflow as tf
 
 class CropClassifier:
     def __init__(self):
-        self.model = SVC(kernel='rbf', probability=True, random_state=42)
+        # RandomForest is robust to scaling issues and captures discrete rules better
+        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
         
     def train(self, X_train, y_train):
         self.model.fit(X_train, y_train)
