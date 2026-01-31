@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, mean_squared_error
 
 from src.preprocessing import DataPreprocessor
-from src.feature_extraction import XLNetFeatureExtractor
+from src.xlnet_features import XLNetFeatureExtractor
 from src.feature_selection import EBMOFeatureSelection
 from src.models import CropClassifier, YieldForecaster, RainfallTransformer
 from src.explainability import XAIExplainer
