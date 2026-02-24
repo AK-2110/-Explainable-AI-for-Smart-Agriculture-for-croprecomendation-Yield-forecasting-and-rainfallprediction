@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, mean_squared_error
 
 from src.preprocessing import DataPreprocessor
-from src.xlnet_features import XLNetFeatureExtractor
+from src.feature_extraction import XLNetFeatureExtractor
 from src.feature_selection import EBMOFeatureSelection
 from src.models import CropClassifier, YieldForecaster, RainfallTransformer
 from src.explainability import XAIExplainer
@@ -40,6 +40,9 @@ def main():
     preprocessor = DataPreprocessor()
     crop_processed = preprocessor.fit_transform_tabular(crop_df, feature_cols, target_col=target_col)
     
+    # Shuffle the processed data to ensure diversity in the subset
+    crop_processed = crop_processed.sample(frac=1, random_state=42).reset_index(drop=True)
+    
     X = crop_processed[feature_cols].values
     y = crop_processed[target_col].values
     class_names = preprocessor.encoders[target_col].classes_
@@ -50,26 +53,48 @@ def main():
     print("Extracting features using XLNet (this may take a while)...")
     xlnet_extractor = XLNetFeatureExtractor()
     texts = xlnet_extractor.tabular_to_text(crop_processed, feature_cols)
-    # Limit to subset for speed in this demo
-    X_xlnet = xlnet_extractor.extract_features(texts[:200]) 
-    y_subset = y[:200]
+    
+    # Train on MUCH more data to ensure diversity. Processing all 2200 rows.
+    # If this is too slow, we can use 1500, but let's try 2200 first.
+    subset_size = len(texts) 
+    print(f"Dataset contains {subset_size} samples across {len(np.unique(y))} classes.")
+    
+    # Class Check
+    unique_types, counts = np.unique(y[:subset_size], return_counts=True)
+    print("Class Distribution in Training Set:")
+    for ut, c in zip(unique_types, counts):
+        print(f" - {preprocessor.encoders[target_col].inverse_transform([ut])[0]}: {c}")
+
+    X_xlnet = xlnet_extractor.extract_features(texts[:subset_size]) 
+    
+    # HYBRID FEATURE: Concat Raw Scaled Numerical Features with XLNet Embeddings
+    # This provides the precise numbers AND the textual context to the model.
+    X_raw_scaled = X[:subset_size]
+    X_hybrid = np.hstack([X_raw_scaled, X_xlnet])
+    print(f"Hybrid feature shape: {X_hybrid.shape}")
+
+    y_subset = y[:subset_size]
     
     # Feature Selection (EBMO)
     print("Selecting features using EBMO...")
-    ebmo = EBMOFeatureSelection(n_population=10, max_iter=5)
-    best_mask = ebmo.fit(X_xlnet, y_subset)
-    X_selected = ebmo.transform(X_xlnet)
-    print(f"EBMO selected {X_selected.shape[1]} features from {X_xlnet.shape[1]}")
+    # Increase search space for better feature subset
+    ebmo = EBMOFeatureSelection(n_population=50, max_iter=50)
+    best_mask = ebmo.fit(X_hybrid, y_subset)
+    X_selected = ebmo.transform(X_hybrid)
+    print(f"EBMO selected {X_selected.shape[1]} features from {X_hybrid.shape[1]}")
     
     # Modeling (SVM)
-    print("Training SVM...")
-    X_train, X_test, y_train, y_test = train_test_split(X_selected, y_subset, test_size=0.2, random_state=42)
-    svm_model = CropClassifier()
+    print("Training SVM with RBF kernel and Optimized Params...")
+    X_train, X_test, y_train, y_test = train_test_split(X_selected, y_subset, test_size=0.2, random_state=42, stratify=y_subset)
+    
+    # Tune SVM for high-dimensional embeddings
+    # C=100.0 for stricter margin (since data is cleaner now)
+    svm_model = CropClassifier(C=100.0, kernel='rbf', gamma='scale', probability=True)
     svm_model.train(X_train, y_train)
     
     preds = svm_model.predict(X_test)
-    acc = np.mean(preds == y_test)
-    print(f"Crop Recommendation Accuracy: {acc:.4f}")
+    print("\nCrop Recommendation Performance:")
+    print(classification_report(y_test, preds, target_names=class_names, labels=range(len(class_names))))
     
     # Explainability
     xai = XAIExplainer(output_dir)
@@ -84,8 +109,8 @@ def main():
     # or attribute embedding importance back to inputs. 
     # For simplicity and functionality: Explaining the selected embeddings.
     feature_names_embedded = [f"Emb_{i}" for i in range(X_selected.shape[1])]
-    # xai.explain_shap_crop(svm_model.model, X_train, X_test, feature_names_embedded)
-    # xai.explain_lime_crop(svm_model.model, X_train, X_test[0], feature_names_embedded, class_names)
+    xai.explain_shap_crop(svm_model.model, X_train, X_test, feature_names_embedded)
+    xai.explain_lime_crop(svm_model.model, X_train, X_test[0], feature_names_embedded, class_names)
     
     # ---------------------------------------------------------
     # 2. YIELD FORECASTING (LSTM)
@@ -100,6 +125,7 @@ def main():
     
     # Scale
     ts_data, scaler = preprocessor.preprocess_timeseries(yield_df, feat_cols, target)
+    preprocessor.scalers['yield_amount'] = scaler
     
     # Create Sequences
     SEQ_LEN = 3
@@ -110,9 +136,10 @@ def main():
     X_train_ts, X_test_ts = X_ts[:split], X_ts[split:]
     y_train_ts, y_test_ts = y_ts[:split], y_ts[split:]
     
-    print("Training LSTM...")
+    print("Training LSTM (High Precision Mode)...")
     lstm = YieldForecaster(input_shape=(SEQ_LEN, X_ts.shape[2]))
-    lstm.train(X_train_ts, y_train_ts, epochs=2)
+    # More epochs for better convergence
+    lstm.train(X_train_ts, y_train_ts, epochs=25)
     
     y_pred_ts = lstm.predict(X_test_ts)
     mse = mean_squared_error(y_test_ts, y_pred_ts)
@@ -128,7 +155,8 @@ def main():
     rain_target = 'Rainfall'
     
     # Scale
-    rain_data, _ = preprocessor.preprocess_timeseries(rain_df, rain_cols, rain_target)
+    rain_data, r_scaler = preprocessor.preprocess_timeseries(rain_df, rain_cols, rain_target)
+    preprocessor.scalers['Rainfall'] = r_scaler
     
     # Create Sequences
     SEQ_LEN_RAIN = 10
@@ -139,9 +167,9 @@ def main():
     X_train_r, X_test_r = X_rain[:split_rain], X_rain[split_rain:]
     y_train_r, y_test_r = y_rain[:split_rain], y_rain[split_rain:]
     
-    print("Training Transformer...")
+    print("Training Transformer (High Precision Mode)...")
     transformer = RainfallTransformer(input_shape=(SEQ_LEN_RAIN, X_rain.shape[2]))
-    transformer.train(X_train_r, y_train_r, epochs=2)
+    transformer.train(X_train_r, y_train_r, epochs=25)
     
     y_pred_r = transformer.predict(X_test_r)
     mse_r = mean_squared_error(y_test_r, y_pred_r)

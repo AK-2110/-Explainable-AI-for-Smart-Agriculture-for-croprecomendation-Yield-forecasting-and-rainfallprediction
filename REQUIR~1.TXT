@@ -1,0 +1,17 @@
+pandas
+numpy
+scikit-learn
+tensorflow
+transformers
+torch
+joblib
+shap
+lime
+matplotlib
+streamlit
+plotly
+deep-translator
+gTTS
+SpeechRecognition
+streamlit-mic-recorder
+pydub
