@@ -122,3 +122,17 @@ CROP_KNOWLEDGE_BASE = {
         'price': 180000
     }
 }
+
+# --- REGIONAL CONSTRAINTS ---
+# Defines scientifically suitable crops for specific regions to prevent invalid recommendations.
+REGION_CROP_MAP = {
+    'kadapa': ['Groundnut', 'Cotton', 'Chickpea', 'Rice'],
+    'hyderabad': ['Rice', 'Maize', 'Cotton'],
+    'mumbai': ['Rice', 'Coconut'],
+    'kashmir': ['Apple', 'Maize'],
+    'nagpur': ['Orange', 'Cotton', 'Soybean'],
+    'assam': ['Tea', 'Rice', 'Jute'],
+    'punjab': ['Wheat', 'Rice', 'Maize', 'Cotton'],
+    'andhra pradesh': ['Rice', 'Chilli', 'Cotton', 'Groundnut', 'Tobacco'],
+    'telangana': ['Cotton', 'Rice', 'Maize', 'Soybean']
+}

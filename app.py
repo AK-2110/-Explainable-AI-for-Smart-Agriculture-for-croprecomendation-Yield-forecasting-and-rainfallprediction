@@ -9,11 +9,15 @@ import plotly.graph_objects as go
 from streamlit_lottie import st_lottie
 from streamlit_extras.metric_cards import style_metric_cards
 from deep_translator import GoogleTranslator
+from streamlit_mic_recorder import speech_to_text
+from gtts import gTTS
+import base64
+import os
 
 from src.xlnet_features import XLNetFeatureExtractor
 from src.feature_selection import EBMOFeatureSelection
 from src.preprocessing import DataPreprocessor
-from src.crop_kb import CROP_KNOWLEDGE_BASE
+from src.crop_kb import CROP_KNOWLEDGE_BASE, REGION_CROP_MAP
 
 # --- 1. CONFIGURATION & ASSETS ---
 st.set_page_config(page_title="Smart Agri XAI", page_icon="🌿", layout="wide")
@@ -39,6 +43,31 @@ def translate(text, lang_code):
         return translator.translate(text)
     except:
         return text
+
+def text_to_audio(text, lang_code='en'):
+    try:
+        # Create audio file with gTTS
+        tts = gTTS(text=text, lang=lang_code[:2] if '-' in lang_code else lang_code)
+        filename = f"temp_audio_{random.randint(1000, 9999)}.mp3"
+        tts.save(filename)
+        
+        # Read file as bytes
+        with open(filename, "rb") as f:
+            data = f.read()
+            b64 = base64.b64encode(data).decode()
+            
+        # Clean up temp file
+        os.remove(filename)
+        
+        # Return HTML audio player
+        md = f"""
+            <audio autoplay="true">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+            </audio>
+            """
+        return md
+    except Exception as e:
+        return None
 
 # --- 3. DIGITAL AGRONOMY THEME (BLUE-CYAN) ---
 st.markdown("""
@@ -161,13 +190,30 @@ def fetch_geo_data(city_name):
             'hum': random.randint(30, 90)
     })
 
-def predict_crop_logic(data):
-    # Simple heuristic
-    if data['rainfall'] > 1500: return "Rice"
-    if data['temp'] > 35 and data['hum'] < 40: return "Chickpea"
-    if data['soil_type'] == 'Black Soil': return "Cotton"
-    if data['pH'] < 5.5: return "Tea"
-    return "Groundnut" # Default
+def predict_crop_logic(data, city_name=None):
+    # 1. Determine base recommendation using heuristics
+    rec = "Groundnut"
+    if data['rainfall'] > 1500: rec = "Rice"
+    elif data['temp'] > 35 and data['hum'] < 40: rec = "Chickpea"
+    elif data['soil_type'] == 'Black Soil': rec = "Cotton"
+    elif data['pH'] < 5.5: rec = "Tea"
+    
+    # 2. Apply Regional Constraint (if city is known)
+    if city_name:
+        key = city_name.lower().strip()
+        # Check specific city or broader state keys if available
+        allowed_crops = REGION_CROP_MAP.get(key)
+        
+        if allowed_crops:
+            # If the heuristic crop is valid for this region, keep it.
+            if rec in allowed_crops:
+                return rec
+            else:
+                # If invalid, fallback to the primary crop of that region
+                # (Future improvement: specific logic within allowed list)
+                return allowed_crops[0] 
+                
+    return rec
 
 # --- 5. MAIN APPLICATION ---
 
@@ -194,7 +240,19 @@ def main():
         
         st.markdown("---")
         
-        city_input = st.text_input(translate("Enter Location (City/Region)", lang_code), "Kadapa")
+        # Voice Input for Location
+        st.write(translate("🎤 Speak Location:", lang_code))
+        voice_input = speech_to_text(language=lang_code, use_container_width=True, just_once=True, key='STT')
+        
+        # Populate City Input with voice input if available, else use default/typed
+        default_city = "Kadapa"
+        if voice_input:
+             # Remove trailing periods that speech-to-text sometimes adds
+             current_input = voice_input.strip('.')
+        else:
+             current_input = default_city
+             
+        city_input = st.text_input(translate("Enter Location (City/Region)", lang_code), current_input)
         
         if st.button(translate("🔍 Analyze Region", lang_code), use_container_width=True):
             with st.spinner(f"{translate('Satellite scanning', lang_code)} {city_input}..."):
@@ -210,7 +268,7 @@ def main():
                 st.session_state['n_in'] = data['N']
                 
                 # Auto-Run Logic (Initial)
-                crop = predict_crop_logic(data)
+                crop = predict_crop_logic(data, city_input)
                 st.session_state['predicted_crop'] = crop
                 st.session_state['analysis_done'] = True
                 
@@ -261,7 +319,7 @@ def main():
                     new_data['N'] = v_n
                     
                     # Re-run Prediction
-                    new_crop = predict_crop_logic(new_data)
+                    new_crop = predict_crop_logic(new_data, st.session_state.get('location'))
                     st.session_state['predicted_crop'] = new_crop
                     st.session_state['geo_data'] = new_data # Update source of truth
                     st.snow() # Visual feedback
@@ -282,6 +340,13 @@ def main():
                 if lottie_crop: st_lottie(lottie_crop, height=120, key="res_anim")
                 
                 st.success(f"**{translate(crop, lang_code)}**")
+                
+                # Text-to-Audio for the result
+                base_text = f"{crop} is the recommended crop based on your region's analysis."
+                spoken_result = translate(base_text, lang_code)
+                audio_html = text_to_audio(spoken_result, lang_code)
+                if audio_html:
+                    st.markdown(audio_html, unsafe_allow_html=True)
             
             with c_info:
                  # FETCH KNOWLEDGE BASE
