@@ -13,12 +13,18 @@ from streamlit_mic_recorder import speech_to_text
 from gtts import gTTS
 import base64
 import os
+from PIL import Image
 
 from src.xlnet_features import XLNetFeatureExtractor
 from src.feature_selection import EBMOFeatureSelection
 from src.preprocessing import DataPreprocessor
-from src.crop_kb import CROP_KNOWLEDGE_BASE, REGION_CROP_MAP
 
+# Force reload knowledge base so updates take effect immediately in Streamlit
+import sys
+import importlib
+if 'src.crop_kb' in sys.modules:
+    importlib.reload(sys.modules['src.crop_kb'])
+from src.crop_kb import CROP_KNOWLEDGE_BASE, REGION_CROP_MAP
 # --- 1. CONFIGURATION & ASSETS ---
 st.set_page_config(page_title="Smart Agri XAI", page_icon="🌿", layout="wide")
 
@@ -191,29 +197,36 @@ def fetch_geo_data(city_name):
     })
 
 def predict_crop_logic(data, city_name=None):
-    # 1. Determine base recommendation using heuristics
-    rec = "Groundnut"
-    if data['rainfall'] > 1500: rec = "Rice"
-    elif data['temp'] > 35 and data['hum'] < 40: rec = "Chickpea"
-    elif data['soil_type'] == 'Black Soil': rec = "Cotton"
-    elif data['pH'] < 5.5: rec = "Tea"
+    # 1. Base list of possible crops based on simple heuristics
+    recommendations = []
+    if data['rainfall'] > 1500: recommendations.append("Rice")
+    if data['temp'] > 35 and data['hum'] < 40: recommendations.append("Chickpea")
+    if data['soil_type'] == 'Black Soil': recommendations.append("Cotton")
+    if data['pH'] < 5.5: recommendations.append("Tea")
+    
+    # Defaults
+    recommendations.extend(["Groundnut", "Maize"])
+    
+    # Remove duplicates while preserving some order
+    recommendations = list(dict.fromkeys(recommendations))
     
     # 2. Apply Regional Constraint (if city is known)
     if city_name:
         key = city_name.lower().strip()
-        # Check specific city or broader state keys if available
         allowed_crops = REGION_CROP_MAP.get(key)
         
         if allowed_crops:
-            # If the heuristic crop is valid for this region, keep it.
-            if rec in allowed_crops:
-                return rec
-            else:
-                # If invalid, fallback to the primary crop of that region
-                # (Future improvement: specific logic within allowed list)
-                return allowed_crops[0] 
+            # Prioritize crops that naturally match heuristics AND region
+            valid_recs = [c for c in recommendations if c in allowed_crops]
+            
+            # Fill the rest with other allowed crops for that region
+            for c in allowed_crops:
+                if c not in valid_recs:
+                    valid_recs.append(c)
+                    
+            return valid_recs[:3] # Return top 3
                 
-    return rec
+    return recommendations[:3] # Fallback top 3
 
 # --- 5. MAIN APPLICATION ---
 
@@ -254,12 +267,17 @@ def main():
              
         city_input = st.text_input(translate("Enter Location (City/Region)", lang_code), current_input)
         
-        if st.button(translate("🔍 Analyze Region", lang_code), use_container_width=True):
-            with st.spinner(f"{translate('Satellite scanning', lang_code)} {city_input}..."):
+        analyze_clicked = st.button(translate("🔍 Analyze Region", lang_code), use_container_width=True)
+        
+        if analyze_clicked or voice_input:
+            # Predict based on the just-spoken voice input immediately, or the typed input
+            city_to_analyze = current_input if voice_input else city_input
+            
+            with st.spinner(f"{translate('Satellite scanning', lang_code)} {city_to_analyze}..."):
                 time.sleep(1.2)
-                data = fetch_geo_data(city_input)
+                data = fetch_geo_data(city_to_analyze)
                 st.session_state['geo_data'] = data
-                st.session_state['location'] = city_input
+                st.session_state['location'] = city_to_analyze
                 
                 # Update Session State for Manual Edits
                 st.session_state['temp_in'] = data['temp']
@@ -283,8 +301,10 @@ def main():
     t1_name = translate("🌿 Crop Recommendation", lang_code)
     t2_name = translate("📉 Yield Forecasting", lang_code)
     t3_name = translate("🌧️ Rainfall Prediction", lang_code)
+    t4_name = translate("🩺 Disease Detection", lang_code)
+    t5_name = translate("🎙️ Voice Assistant", lang_code)
     
-    tab1, tab2, tab3 = st.tabs([t1_name, t2_name, t3_name])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([t1_name, t2_name, t3_name, t4_name, t5_name])
     
     # --- TAB 1: CROP RECOMMENDATION ---
     with tab1:
@@ -326,7 +346,8 @@ def main():
 
             # Use current (possibly updated) data for display logic validation
             current_data = st.session_state['geo_data']
-            crop = st.session_state['predicted_crop']
+            crops_list = st.session_state['predicted_crop']
+            primary_crop = crops_list[0]
             
             st.markdown("---")
             
@@ -339,10 +360,15 @@ def main():
                 lottie_crop = load_lottieurl(LOTTIE_SUCCESS)
                 if lottie_crop: st_lottie(lottie_crop, height=120, key="res_anim")
                 
-                st.success(f"**{translate(crop, lang_code)}**")
+                st.success(f"**{translate(primary_crop, lang_code)}**")
+                
+                if len(crops_list) > 1:
+                    st.markdown(f"**{translate('Other highly suitable crops:', lang_code)}**")
+                    for c in crops_list[1:]:
+                        st.info(f"🌿 {translate(c, lang_code)}")
                 
                 # Text-to-Audio for the result
-                base_text = f"{crop} is the recommended crop based on your region's analysis."
+                base_text = f"{primary_crop} is the highly recommended crop based on your region's analysis."
                 spoken_result = translate(base_text, lang_code)
                 audio_html = text_to_audio(spoken_result, lang_code)
                 if audio_html:
@@ -350,14 +376,14 @@ def main():
             
             with c_info:
                  # FETCH KNOWLEDGE BASE
-                 if crop in CROP_KNOWLEDGE_BASE:
-                     kb = CROP_KNOWLEDGE_BASE[crop]
+                 if primary_crop in CROP_KNOWLEDGE_BASE:
+                     kb = CROP_KNOWLEDGE_BASE[primary_crop]
                      
-                     with st.expander(f"🚜 {translate('Cultivation Process (Step-by-Step)', lang_code)}", expanded=True):
+                     with st.expander(f"🚜 {translate(primary_crop, lang_code)} - {translate('Cultivation Process (Step-by-Step)', lang_code)}", expanded=True):
                          for step in kb['cultivation']:
                              st.write(translate(step, lang_code))
                              
-                     with st.expander(f"🦠 {translate('Diseases & Protection', lang_code)}"):
+                     with st.expander(f"🦠 {translate(primary_crop, lang_code)} - {translate('Diseases & Protection', lang_code)}"):
                          st.markdown(f"**{translate('Common Diseases', lang_code)}:**")
                          for d in kb['diseases']:
                              st.write(f"- {translate(d, lang_code)}")
@@ -366,13 +392,56 @@ def main():
                  else:
                      st.info(translate("Detailed knowledge base for this crop is being updated.", lang_code))
 
+            # --- COMPARISON SECTION ---
+            st.markdown("---")
+            st.subheader(f"📊 {translate('Crop Comparison Analysis', lang_code)}")
+            
+            comp_data = []
+            for c in crops_list:
+                if c in CROP_KNOWLEDGE_BASE:
+                    kb = CROP_KNOWLEDGE_BASE[c]
+                    comp_data.append({
+                        translate('Crop', lang_code): translate(c, lang_code),
+                        translate('Season', lang_code): translate(kb.get('season', 'Varied'), lang_code),
+                        translate('Cultivation Time', lang_code): translate(kb.get('duration', 'N/A'), lang_code),
+                        translate('Harvest Time', lang_code): translate(kb.get('harvest_time', 'N/A'), lang_code),
+                        translate('Budget (INR/Acre)', lang_code): kb.get('budget_per_acre', 0),
+                        translate('Expected Price (INR/Ton)', lang_code): kb.get('price', 0)
+                    })
+            
+            if comp_data:
+                df_comp = pd.DataFrame(comp_data)
+                
+                # Show DataFrame
+                st.dataframe(
+                    df_comp.style.format({
+                        translate('Budget (INR/Acre)', lang_code): "₹{:,.0f}",
+                        translate('Expected Price (INR/Ton)', lang_code): "₹{:,.0f}"
+                    }), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                
+                # Visual Chart
+                fig_comp = px.bar(
+                    df_comp, 
+                    x=translate('Crop', lang_code), 
+                    y=translate('Budget (INR/Acre)', lang_code),
+                    title=translate('Estimated Cultivation Budget Comparison', lang_code),
+                    color=translate('Crop', lang_code),
+                    template="plotly_dark",
+                    text_auto='.2s'
+                )
+                st.plotly_chart(fig_comp, use_container_width=True)
+
         else:
             st.warning(translate("⚠️ Please enter a location and click 'Analyze Region' in the sidebar.", lang_code))
 
     # --- TAB 2: YIELD FORECASTING ---
     with tab2:
         if 'predicted_crop' in st.session_state:
-            crop = st.session_state['predicted_crop']
+            crops_list = st.session_state['predicted_crop']
+            crop = crops_list[0]
             
             st.header(f"{translate('Forecasting Yield for', lang_code)} **{translate(crop, lang_code)}**...")
             
@@ -481,6 +550,154 @@ def main():
                         
         else:
             st.info(translate("Please enter a location to fetch real-time forecasts.", lang_code))
+
+    # --- TAB 4: DISEASE DETECTION ---
+    with tab4:
+        st.header(translate("🩺 Crop Disease Detection", lang_code))
+        st.write(translate("Upload an image of your crop leaf or plant to detect the crop type and any diseases, plus get step-by-step solutions.", lang_code))
+
+        uploaded_file = st.file_uploader(translate("Upload an image (JPG/PNG)", lang_code), type=["jpg", "jpeg", "png"])
+        
+        if uploaded_file is not None:
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                # Display the uploaded image
+                st.image(uploaded_file, caption=translate("Uploaded Image", lang_code), use_container_width=True)
+            
+            with c2:
+                # Mock AI Analysis Delay for Crop & Disease Detection
+                with st.spinner(translate("🤖 AI scanning image to identify crop and anomalies...", lang_code)):
+                    time.sleep(2.5)
+                    
+                # Mock AI Logic: detect crop type from image
+                available_crops = list(CROP_KNOWLEDGE_BASE.keys())
+                # For demo, randomly select a crop to simulate AI classification
+                detected_crop = random.choice(available_crops)
+                
+                # Show detected crop
+                st.info(f"**{translate('Detected Crop', lang_code)}:** {translate(detected_crop, lang_code)}")
+
+                # Mock AI Logic: randomly select a disease for this detected crop, or "Healthy"
+                kb_diseases = CROP_KNOWLEDGE_BASE[detected_crop]['diseases']
+                # Add "Healthy" as an option occasionally, but heavily lean towards finding an issue for demo purposes
+                analysis_results = kb_diseases + ["Healthy"]
+                
+                # Predict (Mock)
+                detected = random.choice(analysis_results)
+                
+                if detected == "Healthy":
+                    st.success(f"### ✅ {translate('Plant appears Healthy!', lang_code)}")
+                    st.write(translate("No significant disease detected in the uploaded image. Maintain good agricultural practices.", lang_code))
+                else:
+                    st.error(f"### ⚠️ {translate('Disease Detected', lang_code)}!")
+                    
+                    # Split the disease string into Name and Remedy (format: "**Name**: Description. *Remedy*: Steps")
+                    if "*Remedy*:" in detected:
+                        issue_part, remedy_part = detected.split("*Remedy*:")
+                        issue_text = issue_part.replace("**", "").strip()
+                        remedy_text = remedy_part.strip()
+                        
+                        st.warning(f"**{translate('Issue Identified', lang_code)}:** {translate(issue_text, lang_code)}")
+                        
+                        st.markdown(f"#### 🛠️ {translate('Step-by-Step Solution', lang_code)}")
+                        
+                        # Generate step-by-step string
+                        # Since remedy_text might be a simple sentence, we'll format it into steps
+                        remedy_steps = [s.strip() for s in remedy_text.split(";") if s.strip()]
+                        if not remedy_steps:
+                            remedy_steps = [s.strip() for s in remedy_text.split(".") if s.strip()]
+                            
+                        for idx, step in enumerate(remedy_steps, 1):
+                            if step:
+                                st.write(f"**{translate('Step', lang_code)} {idx}:** {translate(step, lang_code)}")
+                                
+                    else:
+                        st.warning(f"**{translate('Issue', lang_code)}:** {translate(detected, lang_code)}")
+
+    # --- TAB 5: VOICE ASSISTANT ---
+    with tab5:
+        st.header(translate("🎙️ Interactive Voice Assistant", lang_code))
+        st.write(translate("Speak your agriculture-related questions, and the AI will respond with voice!", lang_code))
+        
+        c_mic, c_ans = st.columns([1, 2])
+        
+        with c_mic:
+            st.info(translate("Click the microphone to start speaking:", lang_code))
+            assistant_query = speech_to_text(language=lang_code, use_container_width=True, just_once=True, key='STT_Assistant')
+            
+        with c_ans:
+            # First, display any pending response from a previous rerun
+            if 'voice_response_text' in st.session_state:
+                st.write(f"**{translate('🎤 You asked:', lang_code)}** {st.session_state.get('voice_query', '')}")
+                st.success(f"**{translate('🤖 AI Response:', lang_code)}** {st.session_state['voice_response_text']}")
+                if st.session_state.get('voice_response_audio'):
+                    st.markdown(st.session_state['voice_response_audio'], unsafe_allow_html=True)
+                
+                # Clear the pending response so it doesn't show again on next interaction
+                del st.session_state['voice_response_text']
+                del st.session_state['voice_response_audio']
+                del st.session_state['voice_query']
+
+            elif assistant_query:
+                # Remove trailing periods
+                clean_query = assistant_query.strip('.')
+                st.write(f"**{translate('🎤 You asked:', lang_code)}** {clean_query}")
+                
+                with st.spinner(translate("🤖 AI is thinking...", lang_code)):
+                    time.sleep(1.5)
+                    
+                    # Keyword-based AI Response Logic
+                    # In a production app, this would be an LLM API call (e.g., Gemini or OpenAI)
+                    crops_list = st.session_state.get('predicted_crop', ['your crops'])
+                    crop_context = crops_list[0] if isinstance(crops_list, list) else crops_list
+                    query_lower = clean_query.lower()
+                    
+                    if any(word in query_lower for word in ['yield', 'production', 'harvest', 'grow']):
+                        selected_response_en = f"To maximize yield for {crop_context}, ensure optimal spacing and follow the recommended nutrient schedule."
+                    elif any(word in query_lower for word in ['rain', 'weather', 'water', 'irrigation', 'dry']):
+                        selected_response_en = f"Water management is critical. For {crop_context}, avoid waterlogging and provide light irrigation during dry spells."
+                    elif any(word in query_lower for word in ['disease', 'sick', 'pest', 'insect', 'yellow', 'health']):
+                        selected_response_en = f"If you notice issues in {crop_context}, look for common symptoms like leaf spots. You can also upload a photo in the Disease Detection tab for a precise diagnosis."
+                    elif any(word in query_lower for word in ['fertilizer', 'soil', 'nutrient', 'ph', 'nitrogen', 'potassium', 'phosphorus']):
+                        selected_response_en = f"For best results with {crop_context}, test your soil regularly and maintain a balanced pH. Apply fertilizers in split doses."
+                    elif any(word in query_lower for word in ['recommend', 'crop', 'what to plant']):
+                        # Extract location if mentioned
+                        mock_cities = ['kadapa', 'hyderabad', 'mumbai', 'kashmir', 'nagpur', 'assam', 'punjab']
+                        detected_city = st.session_state.get('location', 'Kadapa')
+                        for city in mock_cities:
+                            if city in query_lower:
+                                detected_city = city.capitalize()
+                                break
+                        
+                        # Auto-trigger analysis
+                        data = fetch_geo_data(detected_city)
+                        st.session_state['geo_data'] = data
+                        st.session_state['location'] = detected_city
+                        st.session_state['temp_in'] = data['temp']
+                        st.session_state['rain_in'] = data['rainfall']
+                        st.session_state['ph_in'] = data['pH']
+                        st.session_state['n_in'] = data['N']
+                        crop = predict_crop_logic(data, detected_city)
+                        st.session_state['predicted_crop'] = crop
+                        st.session_state['analysis_done'] = True
+                        
+                        selected_response_en = f"I have analyzed the location {detected_city}. Based on the environmental data, I recommend planting {crop}. All dashboard features including yield and rainfall predictions have been automatically updated for this region."
+                    else:
+                        selected_response_en = f"I am your Smart Agri Assistant. You asked about: '{clean_query}'. For {crop_context}, maintaining good agricultural practices and monitoring weather updates is always advised."
+                    
+                    translated_response = translate(selected_response_en, lang_code)
+                    audio_html = text_to_audio(translated_response, lang_code)
+                    
+                    # Save response to state and force a rerun to update globally
+                    st.session_state['voice_response_text'] = translated_response
+                    st.session_state['voice_response_audio'] = audio_html
+                    st.session_state['voice_query'] = clean_query
+                    
+                    if hasattr(st, 'rerun'):
+                        st.rerun()
+                    else:
+                        st.experimental_rerun()
 
 if __name__ == "__main__":
     main()

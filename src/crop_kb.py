@@ -23,7 +23,11 @@ CROP_KNOWLEDGE_BASE = {
         ],
         'protection': "Ensure proper drainage channels to prevent waterlogging during heavy rains. In cyclone-prone areas, use lodging-resistant varieties. Monitor for Brown Plant Hopper (BPH) at the base of the plant.",
         'ideal': {'N': 80, 'P': 40, 'K': 40, 'temp': 25, 'hum': 80, 'ph': 6.5, 'rain': 200},
-        'price': 22000 # INR per Ton
+        'price': 22000, # INR per Ton
+        'season': 'Kharif',
+        'duration': '120-150 days',
+        'harvest_time': 'Oct-Nov',
+        'budget_per_acre': 25000 # INR
     },
     'Maize': {
         'cultivation': [
@@ -40,7 +44,11 @@ CROP_KNOWLEDGE_BASE = {
         ],
         'protection': "Ensure drainage is effective; stagnant water for even 24 hours can kill the crop. Protect from parrots/birds during cob maturation.",
         'ideal': {'N': 100, 'P': 60, 'K': 40, 'temp': 24, 'hum': 60, 'ph': 6.5, 'rain': 100},
-        'price': 20000 
+        'price': 20000,
+        'season': 'Kharif/Rabi',
+        'duration': '90-110 days',
+        'harvest_time': 'Sep-Oct / Feb-Mar',
+        'budget_per_acre': 18000
     },
     'Cotton': {
         'cultivation': [
@@ -59,7 +67,11 @@ CROP_KNOWLEDGE_BASE = {
         ],
         'protection': "Heavy rain during boll bursting ruins quality; harvest immediately if rain is forecast. Avoid water stress during flowering to prevent boll shedding.",
         'ideal': {'N': 120, 'P': 40, 'K': 20, 'temp': 27, 'hum': 50, 'ph': 7.0, 'rain': 80},
-        'price': 60000
+        'price': 60000,
+        'season': 'Kharif',
+        'duration': '150-180 days',
+        'harvest_time': 'Oct-Nov',
+        'budget_per_acre': 35000
     },
     'Chickpea': {
         'cultivation': [
@@ -76,7 +88,11 @@ CROP_KNOWLEDGE_BASE = {
         ],
         'protection': "Chickpea is highly sensitive to frost. Light irrigation or smoking the field can protect from frost damage.",
         'ideal': {'N': 40, 'P': 60, 'K': 80, 'temp': 20, 'hum': 40, 'ph': 7.0, 'rain': 80},
-        'price': 52000
+        'price': 52000,
+        'season': 'Rabi',
+        'duration': '110-130 days',
+        'harvest_time': 'Feb-Mar',
+        'budget_per_acre': 15000
     },
     'Groundnut': {
         'cultivation': [
@@ -94,7 +110,11 @@ CROP_KNOWLEDGE_BASE = {
         ],
         'protection': "Prevent Aflatoxin contamination by drying pods thoroughly (<9% moisture) and avoiding damage to shells during harvest.",
         'ideal': {'N': 20, 'P': 60, 'K': 40, 'temp': 28, 'hum': 50, 'ph': 6.5, 'rain': 70},
-        'price': 58000
+        'price': 58000,
+        'season': 'Kharif',
+        'duration': '105-130 days',
+        'harvest_time': 'Oct-Nov',
+        'budget_per_acre': 22000
     },
     'Tea': {
         'cultivation': [
@@ -112,14 +132,22 @@ CROP_KNOWLEDGE_BASE = {
         ],
         'protection': "Provide shade using Silver Oak or Albizia trees (regulated shade). Protect from frost in high altitudes.",
         'ideal': {'N': 100, 'P': 40, 'K': 80, 'temp': 22, 'hum': 90, 'ph': 5.0, 'rain': 250},
-        'price': 150000 
+        'price': 150000,
+        'season': 'Year-round',
+        'duration': 'Perennial',
+        'harvest_time': 'Every 10-15 days',
+        'budget_per_acre': 60000
     },
     'Coffee': {
         'cultivation': ["**1. Shade**: Establish shade trees (Silver Oak) 1-2 years prior.", "**2. Sowing**: Seeds or Clonal cuttings.", "**3. Training**: Single stem system. Topping at 5ft.", "**4. Berry picking**: Fly picking -> Main picking -> Stripping."],
         'diseases': ["**Coffee Rust**: Orange dust. *Remedy*: Bordeaux mixture.", "**Berry Borer**: Beetle inside berry."],
         'protection': "Protect from direct afternoon sun and frost.",
         'ideal': {'N': 100, 'P': 60, 'K': 80, 'temp': 23, 'hum': 60, 'ph': 6.0, 'rain': 150},
-        'price': 180000
+        'price': 180000,
+        'season': 'Year-round',
+        'duration': 'Perennial',
+        'harvest_time': 'Nov-Feb',
+        'budget_per_acre': 55000
     }
 }
 
