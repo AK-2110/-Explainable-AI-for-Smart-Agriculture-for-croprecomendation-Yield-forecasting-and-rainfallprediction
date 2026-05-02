@@ -73,39 +73,30 @@ def main():
     
     # Explainability
     xai = XAIExplainer(output_dir)
-    # Use raw features for XAI interpretability (since XLNet embeddings are abstract)
-    # Mapping back to abstract embeddings is hard, so we explain the SVM on selected embeddings
-    # Or, effectively, we explain a simpler surrogate on raw data to show "Rainfall Importance"
-    # For the purpose of the paper's claims (SHAP showing N/P/K importance), 
-    # we should likely apply SHAP to the raw-feature-based model or interpret the inputs.
-    # Here, we demonstrate SHAP on the actual trained SVM (on embeddings). 
-    # Note: Explaining embedding features is less human-readable. 
-    # IMPROVEMENT: To show "N, P, K" importance, we should probably run a parallel explanations on raw data
-    # or attribute embedding importance back to inputs. 
-    # For simplicity and functionality: Explaining the selected embeddings.
     feature_names_embedded = [f"Emb_{i}" for i in range(X_selected.shape[1])]
-    # xai.explain_shap_crop(svm_model.model, X_train, X_test, feature_names_embedded)
-    # xai.explain_lime_crop(svm_model.model, X_train, X_test[0], feature_names_embedded, class_names)
+    
+    # UNCOMMENTED: Generate Crop Feature Images
+    print("Generating XAI Output Images (SHAP & LIME)...")
+    try:
+        xai.explain_shap_crop(svm_model.model, X_train, X_test, feature_names_embedded)
+        xai.explain_lime_crop(svm_model.model, X_train, X_test[0], feature_names_embedded, class_names)
+    except Exception as e:
+        print(f"Skipped XAI due to error: {e}")
     
     # ---------------------------------------------------------
     # 2. YIELD FORECASTING (LSTM)
     # ---------------------------------------------------------
     print("\n--- 2. YIELD FORECASTING (LSTM) ---")
     yield_df = pd.read_csv(os.path.join(data_dir, "yield_forecast.csv"))
-    # Sort by year
     yield_df = yield_df.sort_values('Year')
     
     feat_cols = ['average_rain', 'pesticides_tonnes', 'avg_temp', 'area']
     target = 'yield_amount'
     
-    # Scale
     ts_data, scaler = preprocessor.preprocess_timeseries(yield_df, feat_cols, target)
-    
-    # Create Sequences
     SEQ_LEN = 3
     X_ts, y_ts = preprocessor.create_sequences(ts_data, SEQ_LEN, target_col_idx=-1)
     
-    # Train/Test Split
     split = int(0.8 * len(X_ts))
     X_train_ts, X_test_ts = X_ts[:split], X_ts[split:]
     y_train_ts, y_test_ts = y_ts[:split], y_ts[split:]
@@ -118,6 +109,16 @@ def main():
     mse = mean_squared_error(y_test_ts, y_pred_ts)
     print(f"Yield Forecasting MSE: {mse:.4f}")
     
+    # Generate Output Image for Yield Feature
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 5))
+    plt.plot(y_test_ts[:50], label='Actual Yield', color='#00C9FF', linewidth=2)
+    plt.plot(y_pred_ts[:50], label='LSTM Predicted Yield', color='#ef4444', linestyle='--')
+    plt.title('Yield Forecasting Output (Feature)')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, "yield_forecast_output.png"))
+    plt.close()
+    
     # ---------------------------------------------------------
     # 3. RAINFALL PREDICTION (Transformer)
     # ---------------------------------------------------------
@@ -127,14 +128,10 @@ def main():
     rain_cols = ['Temperature', 'Humidity', 'WindSpeed', 'Pressure']
     rain_target = 'Rainfall'
     
-    # Scale
     rain_data, _ = preprocessor.preprocess_timeseries(rain_df, rain_cols, rain_target)
-    
-    # Create Sequences
     SEQ_LEN_RAIN = 10
     X_rain, y_rain = preprocessor.create_sequences(rain_data, SEQ_LEN_RAIN, target_col_idx=-1)
     
-    # Train/Test Split
     split_rain = int(0.8 * len(X_rain))
     X_train_r, X_test_r = X_rain[:split_rain], X_rain[split_rain:]
     y_train_r, y_test_r = y_rain[:split_rain], y_rain[split_rain:]
@@ -147,7 +144,14 @@ def main():
     mse_r = mean_squared_error(y_test_r, y_pred_r)
     print(f"Rainfall Prediction MSE: {mse_r:.4f}")
     
-    print(f"Rainfall Prediction MSE: {mse_r:.4f}")
+    # Generate Output Image for Rainfall Feature
+    plt.figure(figsize=(10, 5))
+    plt.scatter(range(len(y_test_r[:50])), y_test_r[:50], label='Actual Rainfall', color='blue')
+    plt.plot(y_pred_r[:50], label='Transformer Prediction', color='orange')
+    plt.title('Rainfall Prediction Output (Feature)')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, "rainfall_prediction_output.png"))
+    plt.close()
     
     # ---------------------------------------------------------
     # 4. SAVE MODELS

@@ -64,7 +64,7 @@ def generate_crop_data(n_samples=2000): # Increased samples
     
     # Clip negative values
     cols = ['N', 'P', 'K', 'temperature', 'humidity', 'ph', 'rainfall']
-    final_df[cols] = final_df[cols].applymap(lambda x: max(0, x))
+    final_df[cols] = final_df[cols].map(lambda x: max(0, x))
     
     return final_df
 

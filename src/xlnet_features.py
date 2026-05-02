@@ -40,7 +40,7 @@ class XLNetFeatureExtractor:
             last_hidden_state = outputs.last_hidden_state
             
             # Mean pooling over the sequence dimension
-            mean_embedding = torch.mean(last_hidden_state, dim=1).numpy()
+            mean_embedding = torch.mean(last_hidden_state, dim=1).detach().cpu().numpy()
             embeddings.append(mean_embedding)
             
         return np.vstack(embeddings)

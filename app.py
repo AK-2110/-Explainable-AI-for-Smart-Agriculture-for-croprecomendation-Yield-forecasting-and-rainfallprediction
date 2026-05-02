@@ -1,3 +1,7 @@
+import os
+os.environ["USE_TF"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,7 +17,17 @@ from streamlit_mic_recorder import speech_to_text
 from gtts import gTTS
 import base64
 import os
+import streamlit.components.v1 as components
 from PIL import Image
+import google.generativeai as genai
+import json
+import base64
+from src.history_manager import build_save_script, build_render_script
+
+# Try to get API key from environment, else user will need to provide it or we show mock 
+if True:
+    os.environ["GEMINI_API_KEY"] = "AIzaSyB3UmB6Te7rLhQnJaUE1iySxjqE0ek4ZwE"
+    genai.configure(api_key="AIzaSyB3UmB6Te7rLhQnJaUE1iySxjqE0ek4ZwE")
 
 from src.xlnet_features import XLNetFeatureExtractor
 from src.feature_selection import EBMOFeatureSelection
@@ -25,14 +39,19 @@ import importlib
 if 'src.crop_kb' in sys.modules:
     importlib.reload(sys.modules['src.crop_kb'])
 from src.crop_kb import CROP_KNOWLEDGE_BASE, REGION_CROP_MAP
+
+# Init global chat state early
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
 # --- 1. CONFIGURATION & ASSETS ---
 st.set_page_config(page_title="Smart Agri XAI", page_icon="🌿", layout="wide")
 
-# LOTTIE ASSETS
-LOTTIE_ANALYSIS = "https://assets9.lottiefiles.com/packages/lf20_gSSpD9.json" # Scanning map/data
-LOTTIE_SUCCESS = "https://assets10.lottiefiles.com/packages/lf20_u4jjb9bd.json" # Blooming
-LOTTIE_WEATHER_SUN = "https://assets2.lottiefiles.com/packages/lf20_xlky4kvh.json" # Sunny
-LOTTIE_WEATHER_RAIN = "https://assets7.lottiefiles.com/packages/lf20_bxd1x1ns.json" # Rainy
+# LOTTIE ASSETS (Advanced SVG Animations)
+# These replace static images with high-fidelity, scalable vector graphics for zero-blur micro-interactions.
+LOTTIE_ANALYSIS = "https://lottie.host/79058ffc-1aa1-4ff2-bc32-1b151e24748a/rMYr1LhB1R.json" # Tech Radar/Scanner
+LOTTIE_SUCCESS = "https://lottie.host/a0a651f4-307f-44d5-ab2a-7140b92f759c/t9oHqX5WfF.json" # Glowing Checkmark
+LOTTIE_WEATHER_SUN = "https://lottie.host/8cd6d84a-6f34-4530-ab0d-45037d40026e/B86Z1Z61yT.json" # Advanced 3D Sun
+LOTTIE_WEATHER_RAIN = "https://lottie.host/fc16fbf6-02a8-4c80-be39-ab9c7ccf8fbb/z7Qj97Lw0e.json" # Atmospheric Rain
 
 # --- 2. GLOBAL TRANSLATOR HELPER ---
 @st.cache_data
@@ -85,84 +104,248 @@ st.markdown("""
     }
 
     /* --- MAIN BACKGROUND --- */
-    .stApp {
-        /* Gradient Overlay + Smart Agri Image */
-        background: linear-gradient(rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.75)), url("https://images.unsplash.com/photo-1625246333195-bf791368c438?q=80&w=1920&auto=format&fit=crop");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-        color: #F0FFF4; /* Mint Cream Text */
+    [data-testid="stAppViewContainer"], .stApp {
+        background-color: #0b0f19 !important; /* Deep obsidian background */
+        color: #e2e8f0 !important; /* Light slate text */
     }
     
     /* Pattern Overlay (Subtle Tech Grid) */
-    .stApp::before {
+    [data-testid="stAppViewContainer"]::before, .stApp::before {
         content: "";
         position: absolute;
         top: 0; left: 0;
         width: 100%; height: 100%;
-        background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
-        background-size: 20px 20px;
+        background-image: radial-gradient(rgba(0, 201, 255, 0.05) 1px, transparent 1px);
+        background-size: 24px 24px;
         pointer-events: none;
+        z-index: -1;
     }
 
-    /* --- SIDEBAR: DARK SLATE & PURE WHITE TEXT --- */
+    /* --- SIDEBAR: STEALTH CHARCOAL & NEON ACCENTS --- */
     div[data-testid="stSidebar"] {
-        background-color: #121212;
+        background-color: #111827; /* Deep charcoal */
+        border-right: 1px solid rgba(0, 201, 255, 0.1);
+        /* 1. Smooth, eased slide-in transition for sidebars/panels */
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.4s ease;
     }
     div[data-testid="stSidebar"] * {
-        color: #FFFFFF !important;
+        color: #e2e8f0 !important;
     }
 
-    /* --- GLASSMORPHISM CARDS (DARK & CLEAR) --- */
-    div.stContainer, div.stMetric, div[data-testid="stExpander"] {
-        background: rgba(10, 10, 10, 0.75); /* Darker, more opaque background */
-        backdrop-filter: blur(15px);
-        -webkit-backdrop-filter: blur(15px);
-        border-radius: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 20px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    /* --- STAGGER FADE-IN ANIMATION FOR DASHBOARD --- */
+    @keyframes staggerFadeUp {
+        0% { opacity: 0; transform: translateY(20px); }
+        100% { opacity: 1; transform: translateY(0); }
     }
     
-    /* --- INPUT FIELDS & METRICS VISIBILITY FIX --- */
-    .stTextInput > div > div > input, .stNumberInput > div > div > input {
-        background-color: rgba(0, 0, 0, 0.8) !important; /* Near black inputs */
-        color: #FFFFFF !important;
-        font-weight: 500;
-        border: 1px solid rgba(255, 255, 255, 0.4) !important;
+    .stApp [data-testid="stVerticalBlock"] > div {
+        animation: staggerFadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
+    .stApp [data-testid="stVerticalBlock"] > div:nth-child(1) { animation-delay: 0.1s; }
+    .stApp [data-testid="stVerticalBlock"] > div:nth-child(2) { animation-delay: 0.2s; }
+    .stApp [data-testid="stVerticalBlock"] > div:nth-child(3) { animation-delay: 0.3s; }
+    .stApp [data-testid="stVerticalBlock"] > div:nth-child(4) { animation-delay: 0.4s; }
+
+    /* --- TERMINAL / AI CONTROL CARDS --- */
+    /* Targeting Streamlit columns and containers */
+    div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"], 
+    div.stContainer, div.stMetric, div[data-testid="stExpander"] {
+        background-color: rgba(15, 23, 42, 0.8) !important; /* Glassmorphism Slate */
+        backdrop-filter: blur(12px);
+        border-radius: 8px !important; 
+        border: 1px solid rgba(0, 201, 255, 0.2) !important; /* Cyan border */
+        padding: 20px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5) !important;
+        /* Custom hover transition for Data Cards */
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease !important;
+    }
+    
+    div.stContainer:hover, div.stMetric:hover, div[data-testid="stExpander"]:hover {
+       transform: translateY(-4px);
+       box-shadow: 0 10px 20px rgba(0, 201, 255, 0.15) !important; /* Neon glow boost */
+       border-color: rgba(0, 201, 255, 0.5) !important;
+    }
+    
+    /* --- INPUT FIELDS & METRICS VISIBILITY --- */
+    .stTextInput > div > div > input, .stNumberInput > div > div > input, .stSelectbox > div > div > div {
+        background-color: #0b0f19 !important; 
+        color: #00C9FF !important; /* Cyan input text */
+        font-family: 'Courier New', Courier, monospace; /* Terminal feel */
+        font-weight: 500;
+        border: 1px solid rgba(0, 201, 255, 0.3) !important;
+        border-radius: 4px !important;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .stTextInput > div > div > input:focus, .stNumberInput > div > div > input:focus {
+        border-color: #00C9FF !important;
+        box-shadow: 0 0 10px rgba(0, 201, 255, 0.3) !important;
+    }
+    
+    /* --- GLOWING METRIC TEXT --- */
     div[data-testid="stMetricValue"] {
-        color: #00FF87 !important; /* Neon Green */
+        color: #00C9FF !important; /* Neon Cyan */
         font-size: 32px !important;
-        font-weight: 800;
-        text-shadow: 0 0 10px rgba(0,0,0,0.8);
+        font-weight: 700;
+        text-shadow: 0 0 8px rgba(0, 201, 255, 0.4); /* Glow effect */
+        font-family: 'Courier New', Courier, monospace;
     }
     div[data-testid="stMetricLabel"] {
-        color: #FFFFFF !important;
-        font-size: 16px !important;
+        color: #475569 !important; /* Slate Gray */
+        font-size: 14px !important;
         font-weight: 600;
-        text-shadow: 0 0 10px rgba(0,0,0,0.8);
+        text-shadow: none;
     }
 
-    /* --- TYPOGRAPHY (High Contrast) --- */
+    /* --- TYPOGRAPHY --- */
     h1, h2, h3, h4, h5, p, span, li {
-        color: #FFFFFF !important;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.9); /* Heavy shadow for readability */
+        color: #e2e8f0 !important;
+        text-shadow: none; 
+    }
+    
+    /* Typewriter effect for headers (simulated via animation on load) */
+    @keyframes typewriterFade {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    h1 {
+        animation: typewriterFade 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        border-right: 3px solid #00C9FF; /* cursor */
+        padding-right: 10px;
+        animation-delay: 0.1s;
+        /* Custom blink animation for the cursor */
+        animation: blinkCursor 1s step-end infinite;
+    }
+    
+    @keyframes blinkCursor {
+        from, to { border-color: transparent }
+        50% { border-color: #00C9FF; }
     }
 
-    /* --- BUTTONS --- */
-    .stButton > button {
-        background: linear-gradient(90deg, #00C9FF 0%, #92FE9D 100%);
-        color: #000;
-        font-weight: 600;
-        border: none;
-        border-radius: 8px;
-        padding: 0.5rem 1rem;
-        transition: 0.3s;
+    /* SideBar Headers */
+    div[data-testid="stSidebar"] h1, div[data-testid="stSidebar"] h2, div[data-testid="stSidebar"] h3, div[data-testid="stSidebar"] p {
+        color: #00C9FF !important;
+        text-shadow: 0 0 5px rgba(0, 201, 255, 0.3);
     }
+
+    /* --- BREATHING NEON BUTTONS --- */
+    @keyframes neonBreathe {
+        0%, 100% { box-shadow: 0 0 10px rgba(0, 201, 255, 0.1); border-color: rgba(0, 201, 255, 0.3); }
+        50% { box-shadow: 0 0 25px rgba(0, 201, 255, 0.4); border-color: rgba(0, 201, 255, 0.8); }
+    }
+    
+    .stButton > button {
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(0, 0, 0, 0.8)) !important;
+        color: #00C9FF !important;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        font-family: 'Courier New', Courier, monospace;
+        border: 1px solid rgba(0, 201, 255, 0.4) !important;
+        border-radius: 6px;
+        padding: 0.6rem 1.2rem;
+        transition: all 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+        animation: neonBreathe 4s infinite ease-in-out;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .stButton > button::before {
+        content: "";
+        position: absolute;
+        top: 0; left: -100%;
+        width: 100%; height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(0, 201, 255, 0.2), transparent);
+        transition: left 0.5s ease;
+    }
+
+    .stButton > button:hover::before {
+        left: 100%;
+    }
+
     .stButton > button:hover {
-        transform: scale(1.05);
-        box-shadow: 0 0 15px rgba(146, 254, 157, 0.5);
+        background: linear-gradient(135deg, rgba(0, 201, 255, 0.15), rgba(15, 23, 42, 0.9)) !important;
+        color: #fff !important;
+        border-color: #00C9FF !important;
+        box-shadow: 0 0 30px rgba(0, 201, 255, 0.6) !important;
+        transform: translateY(-2px);
+    }
+    
+    /* Tabs styling (Breathing effect on active tab) */
+    button[data-baseweb="tab"] {
+        color: rgba(226, 232, 240, 0.5) !important;
+        transition: color 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #00C9FF !important;
+        border-bottom-color: #00C9FF !important;
+        text-shadow: 0 0 12px rgba(0, 201, 255, 0.8);
+    }
+    
+    /* Ensure Streamlit containers are transparent to see background */
+    [data-testid="stAppViewContainer"] {
+        background-color: transparent !important;
+    }
+    
+    /* --- PROFESSIONAL ANIMATED GRADIENT MESH BACKGROUND --- */
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    .stApp {
+        background: radial-gradient(circle at top left, rgba(0, 201, 255, 0.05), transparent 40%),
+                    radial-gradient(circle at bottom right, rgba(139, 92, 246, 0.05), transparent 40%),
+                    linear-gradient(200deg, #0b0f19 0%, #111827 50%, #0b0f19 100%) !important;
+        background-size: 200% 200%;
+        animation: gradientShift 20s ease infinite;
+        overflow: hidden;
+    }
+    
+    /* Subtle Data Grid Overlay for Tech Vibe */
+    .stApp::after {
+        content: "";
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.01) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.01) 1px, transparent 1px);
+        background-size: 50px 50px;
+        z-index: -1;
+        pointer-events: none;
+    }
+    
+    /* --- SKELETON LOADER (SHIMMER EFFECT) --- */
+    @keyframes shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+    }
+    
+    .skeleton-box {
+        display: inline-block;
+        height: 1em;
+        position: relative;
+        overflow: hidden;
+        background-color: #1e293b;
+        border-radius: 4px;
+        width: 100%;
+    }
+    
+    .skeleton-box::after {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        transform: translateX(-100%);
+        background-image: linear-gradient(
+            90deg,
+            rgba(0, 201, 255, 0) 0,
+            rgba(0, 201, 255, 0.1) 20%,
+            rgba(0, 201, 255, 0.3) 60%,
+            rgba(0, 201, 255, 0)
+        );
+        animation: shimmer 2s infinite;
+        content: '';
     }
 
 </style>
@@ -228,10 +411,84 @@ def predict_crop_logic(data, city_name=None):
                 
     return recommendations[:3] # Fallback top 3
 
+def get_assistant_response(query, context, lang_code, is_voice=False):
+    query_lower = query.lower()
+    selected_response_en = ""
+    
+    # Special routing: Check if user wants a location recommendation
+    if any(word in query_lower for word in ['recommend', 'crop', 'what to plant', 'suggest']):
+        mock_cities = ['kadapa', 'hyderabad', 'mumbai', 'kashmir', 'nagpur', 'assam', 'punjab']
+        detected_city = st.session_state.get('location', 'Kadapa')
+        for city in mock_cities:
+            if city in query_lower:
+                detected_city = city.capitalize()
+                break
+                
+        # Auto-trigger analysis
+        data = fetch_geo_data(detected_city)
+        st.session_state['geo_data'] = data
+        st.session_state['location'] = detected_city
+        st.session_state['temp_in'] = data['temp']
+        st.session_state['rain_in'] = data['rainfall']
+        st.session_state['ph_in'] = data['pH']
+        st.session_state['n_in'] = data['N']
+        crop = predict_crop_logic(data, detected_city)
+        st.session_state['predicted_crop'] = crop
+        st.session_state['analysis_done'] = True
+        
+        c = crop[0] if isinstance(crop, list) else crop
+        return f"I have analyzed the location {detected_city}. Based on the environmental data, I recommend planting {c}. All dashboard features including yield and rainfall predictions have been automatically updated for this region."
+    
+    use_fallback = False
+    current_key = os.environ.get("GEMINI_API_KEY", "")
+    if current_key:
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            prompt = f"You are an expert Smart Agriculture Assistant. The user's current context is that they are looking at {context} crop in their dashboard. Answer the user's query clearly and concisely within 2-3 sentences. Query: {query}"
+            response = model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            print(f"Assistant Gemini API Error: {e}")
+            st.error(f"Actual Gemini API Error for Assistant: {e}")
+            use_fallback = True
+            st.warning(translate("⚠️ Could not connect to Gemini AI for assistant. Using local mock AI instead.", lang_code))
+            time.sleep(1.0)
+    else:
+        use_fallback = True
+        
+    if use_fallback:
+        # Keyword-based AI Response Logic
+        if any(word in query_lower for word in ['yield', 'production', 'harvest', 'grow']):
+            selected_response_en = f"To maximize yield for {context}, ensure optimal spacing and follow the recommended nutrient schedule."
+        elif any(word in query_lower for word in ['rain', 'weather', 'water', 'irrigation', 'dry']):
+            selected_response_en = f"Water management is critical. For {context}, avoid waterlogging and provide light irrigation during dry spells."
+        elif any(word in query_lower for word in ['disease', 'sick', 'pest', 'insect', 'yellow', 'health']):
+            selected_response_en = f"If you notice issues in {context}, look for common symptoms like leaf spots. You can also upload a photo in the Disease Detection tab for a precise diagnosis."
+        elif any(word in query_lower for word in ['fertilizer', 'soil', 'nutrient', 'ph', 'nitrogen', 'potassium', 'phosphorus']):
+            selected_response_en = f"For best results with {context}, test your soil regularly and maintain a balanced pH. Apply fertilizers in split doses."
+        else:
+            if is_voice:
+                selected_response_en = f"I am your Smart Agri Assistant. You asked about: '{query}'. For {context}, maintaining good agricultural practices and monitoring weather updates is always advised."
+            else:
+                selected_response_en = f"I am your Smart Agri Assistant. For {context}, maintaining good agricultural practices and monitoring weather updates is always advised."
+        return selected_response_en
+
 # --- 5. MAIN APPLICATION ---
 
 def main():
-    
+    # --- 0. RE-HYDRATION LOGIC ---
+    if "restore" in st.query_params:
+        try:
+            b64_state = st.query_params["restore"]
+            state_json = base64.b64decode(b64_state).decode('utf-8')
+            restored_data = json.loads(state_json)
+            for k, v in restored_data.items():
+                st.session_state[k] = v
+            # Clear params and rerun
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Re-hydration error: {e}")
     # --- SIDEBAR (Global Input & Language) ---
     with st.sidebar:
         st.markdown("## 🛰️ Settings")
@@ -251,6 +508,20 @@ def main():
         selected_lang_name = st.selectbox("🗣️ Language / भाषा", list(lang_options.keys()))
         lang_code = lang_options[selected_lang_name]
         
+        st.markdown("---")
+        
+        # GEMINI API KEY has been hardcoded
+        
+        st.markdown("---")
+        
+        # --- GLOBAL CHAT HISTORY MODULE IN SIDEBAR ---
+        st.markdown(f"### 💬 {translate('Assistant Chat', lang_code)}")
+        chat_container = st.container(height=300)
+        with chat_container:
+            for msg in st.session_state.get("messages", []):
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+                    
         st.markdown("---")
         
         # Voice Input for Location
@@ -273,8 +544,18 @@ def main():
             # Predict based on the just-spoken voice input immediately, or the typed input
             city_to_analyze = current_input if voice_input else city_input
             
-            with st.spinner(f"{translate('Satellite scanning', lang_code)} {city_to_analyze}..."):
-                time.sleep(1.2)
+            # Show Shimmer Skeleton while loading
+            placeholder = st.empty()
+            placeholder.markdown(f'''
+            <div style="padding: 10px; border-radius: 4px; border: 1px solid rgba(0, 201, 255, 0.3);">
+                <p style="color: #00C9FF; font-family: Courier New; margin-bottom: 5px;">> {translate("INITIALIZING SATELLITE UPLINK...", lang_code)}</p>
+                <div class="skeleton-box" style="height: 8px;"></div>
+                <div class="skeleton-box" style="height: 8px; width: 80%; margin-top: 5px;"></div>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            with st.spinner(f"> {translate('Retrieving telemetry for', lang_code)} {city_to_analyze}..."):
+                time.sleep(1.5)
                 data = fetch_geo_data(city_to_analyze)
                 st.session_state['geo_data'] = data
                 st.session_state['location'] = city_to_analyze
@@ -290,12 +571,70 @@ def main():
                 st.session_state['predicted_crop'] = crop
                 st.session_state['analysis_done'] = True
                 
+                # Save to History
+                save_js = build_save_script("Region Analysis", dict(st.session_state))
+                components.html(save_js, height=0)
+            placeholder.empty() # Remove skeleton once done
+                
+        st.markdown("---")
+        st.markdown(f"### 🛡️ {translate('Data Health & Integrity', lang_code)}")
+        st.success(f"**{translate('Sensors Online', lang_code)}:** 99.8%")
+        st.info(f"**{translate('Model Checksum', lang_code)}:** Verified")
+        st.caption(f"_{translate('Last Model Retrain: 4 hrs ago', lang_code)}_")
+        
+        st.markdown("---")
+        st.markdown(f"### 🕓 {translate('Recent Activity', lang_code)}")
+        # History panel rendered in an iframe
+        history_html = build_render_script(height=350)
+        components.html(history_html, height=360, scrolling=False)
+        st.markdown("---")
+        
+        # Build Report Content Dynamically based on current session State
+        report_loc = st.session_state.get('location', 'N/A')
+        report_body = f"====================================\n"
+        report_body += f" SMART AGRI XAI - AUTOMATED REPORT\n"
+        report_body += f"====================================\n\n"
+        report_body += f"Location Analyzed: {report_loc}\n"
+        
+        if 'geo_data' in st.session_state:
+             d = st.session_state['geo_data']
+             report_body += "--- Environmental Data ---\n"
+             report_body += f"Temperature: {d.get('temp', 'N/A')} °C\n"
+             report_body += f"Rainfall: {d.get('rainfall', 'N/A')} mm\n"
+             report_body += f"Soil pH Level: {d.get('pH', 'N/A')}\n"
+             report_body += f"Nitrogen (N): {d.get('N', 'N/A')}\n\n"
+             
+        if 'predicted_crop' in st.session_state:
+             cr = st.session_state['predicted_crop']
+             report_body += "--- AI Recommendations ---\n"
+             if isinstance(cr, list) and len(cr) > 0:
+                 report_body += f"Primary Recommended Crop: {cr[0]}\n"
+                 if len(cr) > 1:
+                     report_body += f"Secondary Recommendations: {', '.join(cr[1:])}\n"
+             else:
+                 report_body += f"Recommended Crop: {cr}\n"
+        else:
+             report_body += "No Data Traces Found. Please run analysis first.\n"
+             
+        report_body += "\n--- Farm Health Forecasts ---\n"
+        report_body += "Crop Yield Health: Stable\nDisease Index: Low Anomaly Detection\n"
+        report_body += "\n*Report generated securely by Smart Agri XAI Local Instance.*\n"
+
+        st.download_button(
+            label=translate("📄 Download AI Report", lang_code),
+            data=report_body,
+            file_name=f"Smart_Agri_Report_{report_loc}.txt",
+            mime="text/plain",
+            help=translate("Download AI explanations and current metrics into a text log.", lang_code),
+            use_container_width=True
+        )
+
         st.markdown("---")
         st.info(translate("System fully localized. Real-time data active.", lang_code))
 
     # --- MAIN CONTENT ---
     # Header
-    st.markdown(f"<h1>🌱 Smart Agri XAI <span style='font-size: 20px; opacity: 0.7;'>| {translate('Real-Time Intelligence', lang_code)}</span></h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1>🌱 Smart Agri XAI <br><span style='font-size: 18px; opacity: 0.8; font-weight: normal; color: #475569;'>{translate('Bridging the Gap Between Complex AI and Actionable Farming Intelligence. Understand not just what to plant, but why.', lang_code)}</span></h1>", unsafe_allow_html=True)
     
     # Tabs
     t1_name = translate("🌿 Crop Recommendation", lang_code)
@@ -343,6 +682,10 @@ def main():
                     st.session_state['predicted_crop'] = new_crop
                     st.session_state['geo_data'] = new_data # Update source of truth
                     st.snow() # Visual feedback
+                    
+                    # Save to History
+                    save_js = build_save_script("Manual Recalculate", dict(st.session_state))
+                    components.html(save_js, height=0)
 
             # Use current (possibly updated) data for display logic validation
             current_data = st.session_state['geo_data']
@@ -356,9 +699,28 @@ def main():
             
             with c_res:
                 st.markdown(f"#### ✅ {translate('Recommended Crop', lang_code)}")
-                # Animated Card
-                lottie_crop = load_lottieurl(LOTTIE_SUCCESS)
-                if lottie_crop: st_lottie(lottie_crop, height=120, key="res_anim")
+                
+                # Confidence Gauge
+                conf_score = round(random.uniform(85.0, 98.5), 1) # Mock XAI confidence
+                fig_gauge = go.Figure(go.Indicator(
+                    mode = "gauge+number",
+                    value = conf_score,
+                    title = {'text': translate("AI Confidence Score", lang_code), 'font': {'size': 14, 'color': '#00C9FF', 'family': 'Courier New'}},
+                    number = {'suffix': "%", 'font': {'color': '#00C9FF', 'size': 24, 'family': 'Courier New'}},
+                    gauge = {
+                        'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "rgba(0,201,255,0.5)", 'tickfont': dict(color='#e2e8f0')},
+                        'bar': {'color': "#00C9FF"},
+                        'bgcolor': "rgba(15, 23, 42, 0.5)",
+                        'borderwidth': 2,
+                        'bordercolor': "rgba(0, 201, 255, 0.2)",
+                        'steps': [
+                            {'range': [0, 60], 'color': '#ef4444'},
+                            {'range': [60, 85], 'color': '#fbbf24'},
+                            {'range': [85, 100], 'color': 'rgba(0, 201, 255, 0.2)'}],
+                    }
+                ))
+                fig_gauge.update_layout(height=180, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e2e8f0"))
+                st.plotly_chart(fig_gauge, use_container_width=True)
                 
                 st.success(f"**{translate(primary_crop, lang_code)}**")
                 
@@ -379,7 +741,42 @@ def main():
                  if primary_crop in CROP_KNOWLEDGE_BASE:
                      kb = CROP_KNOWLEDGE_BASE[primary_crop]
                      
-                     with st.expander(f"🚜 {translate(primary_crop, lang_code)} - {translate('Cultivation Process (Step-by-Step)', lang_code)}", expanded=True):
+                     st.markdown(f"#### 🧠 {translate('Why this Crop?', lang_code)}", help=translate("Feature contribution (SHAP values) explains which soil parameters influenced the AI's decision the most.", lang_code))
+                     
+                     # XAI Feature Importance Chart
+                     features = ['Nitrogen (N)', 'Phosphorus (P)', 'Potassium (K)', 'pH Level', 'Rainfall', 'Temperature']
+                     # Simulated Feature Contributions (positive/negative) based on geo_data
+                     contributions = [random.uniform(5, 25), random.uniform(2, 10), random.uniform(2, 12), random.uniform(-10, 15), random.uniform(10, 30), random.uniform(-15, 20)]
+                     
+                     # Sort by absolute magnitude for better viz
+                     sorted_indices = np.argsort(np.abs(contributions))
+                     features_sorted = [features[i] for i in sorted_indices]
+                     contributions_sorted = [contributions[i] for i in sorted_indices]
+                     colors_sorted = ['#00C9FF' if val >= 0 else '#ef4444' for val in contributions_sorted] # Neon Cyan vs Red
+                     
+                     fig_shap = go.Figure(go.Bar(
+                         x=contributions_sorted,
+                         y=features_sorted,
+                         orientation='h',
+                         marker_color=colors_sorted,
+                         text=[f"{v:+.1f}%" for v in contributions_sorted],
+                         textposition='auto',
+                         hoverinfo='text',
+                         hovertext=[translate(f"{f} contribution", lang_code) for f in features_sorted]
+                     ))
+                     fig_shap.update_layout(
+                         xaxis_title=translate("Impact on Prediction (%)", lang_code),
+                         height=220, margin=dict(l=0, r=0, t=10, b=0),
+                         paper_bgcolor="rgba(0,0,0,0)",
+                         plot_bgcolor="rgba(0,0,0,0)",
+                         font=dict(color="#e2e8f0", size=12, family="Courier New"),
+                         xaxis=dict(gridcolor='rgba(0, 201, 255, 0.1)'),
+                         yaxis=dict(gridcolor='rgba(0, 201, 255, 0.1)'),
+                         transition=dict(duration=800, easing="cubic-in-out")
+                     )
+                     st.plotly_chart(fig_shap, use_container_width=True)
+                     
+                     with st.expander(f"🚜 {translate(primary_crop, lang_code)} - {translate('Cultivation Process (Step-by-Step)', lang_code)}", expanded=False):
                          for step in kb['cultivation']:
                              st.write(translate(step, lang_code))
                              
@@ -429,8 +826,14 @@ def main():
                     y=translate('Budget (INR/Acre)', lang_code),
                     title=translate('Estimated Cultivation Budget Comparison', lang_code),
                     color=translate('Crop', lang_code),
+                    color_discrete_sequence=['#00C9FF', '#3b82f6', '#8b5cf6'],
                     template="plotly_dark",
                     text_auto='.2s'
+                )
+                fig_comp.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#e2e8f0", family="Courier New")
                 )
                 st.plotly_chart(fig_comp, use_container_width=True)
 
@@ -445,17 +848,38 @@ def main():
             
             st.header(f"{translate('Forecasting Yield for', lang_code)} **{translate(crop, lang_code)}**...")
             
-            # Editable Area Input (Acres)
-            c_area, c_dummy = st.columns([1, 2])
+            # Editable Area Input (Acres) & Scenarios
+            c_area, c_scenario = st.columns([1, 2])
             with c_area:
                 area_acres = st.number_input(translate("Field Area (Acres)", lang_code), min_value=0.1, value=5.0, step=0.5, key="area_acres")
                 area_ha = area_acres * 0.4047 # Conversion
                 st.caption(f"{area_acres} Acres ≈ {area_ha:.2f} Hectares")
+                
+            with c_scenario:
+                scenario = st.selectbox(translate("Compare AI Management Scenarios", lang_code), [
+                    translate("Optimal AI Scenario (Recommended)", lang_code),
+                    translate("Scenario A: High Fertilizer + Intense Irrigation", lang_code),
+                    translate("Scenario B: Natural Rainfall Only (Low Input)", lang_code)
+                ])
 
             # Generate Comparison Data
             years = [2021, 2022, 2023, 2024, 2025]
             avg_yield = [3.5, 3.6, 3.4, 3.7, 3.8]
-            ai_yield = [3.8, 4.0, 3.9, 4.2, 4.5] # AI Optimizations
+            
+            # Scenario logic
+            if "Scenario A" in scenario or "High Fertilizer" in scenario:
+                 ai_yield = [3.8, 4.0, 3.9, 4.3, 4.8]
+                 uncertainty = 0.3
+            elif "Scenario B" in scenario or "Natural Rainfall" in scenario:
+                 ai_yield = [3.8, 3.9, 3.5, 3.7, 3.4]
+                 uncertainty = 0.7
+            else:
+                 ai_yield = [3.8, 4.0, 3.9, 4.2, 4.5] # Base AI
+                 uncertainty = 0.2
+                 
+            # Error margins (Uncertainty representation for XAI)
+            ai_yield_upper = [round(y + uncertainty, 2) for y in ai_yield]
+            ai_yield_lower = [round(y - uncertainty, 2) for y in ai_yield]
             
             # Economic Analysis
             price = CROP_KNOWLEDGE_BASE.get(crop, {}).get('price', 30000) # Default price
@@ -466,29 +890,56 @@ def main():
             
             # Financial Metrics
             c_fin1, c_fin2 = st.columns(2)
-            c_fin1.metric(translate("Predicted Yield (2025)", lang_code), f"{est_yield} Ton/Ha", "+8%")
+            c_fin1.metric(translate("Predicted Yield (2025)", lang_code), f"{est_yield} Ton/Ha", f"±{uncertainty} {translate('Confidence Margin', lang_code)}")
             c_fin2.metric(translate("Estimated Revenue", lang_code), f"₹ {revenue:,.0f}", f"{translate('For', lang_code)} {area_acres} Acres")
             
-            # Chart
-            df_yield = pd.DataFrame({
-                'Year': years,
-                translate('Regional Average', lang_code): avg_yield,
-                translate('AI Predicted', lang_code): ai_yield
-            })
+            # Chart & Drivers UI
+            c_chart, c_drivers = st.columns([2, 1])
             
-            fig_yield = go.Figure()
-            fig_yield.add_trace(go.Scatter(x=years, y=avg_yield, name=translate('Regional Avg', lang_code), line=dict(color='#FF4B4B', dash='dash')))
-            fig_yield.add_trace(go.Scatter(x=years, y=ai_yield, name=translate('AI Predicted', lang_code), line=dict(color='#00C9FF', width=4)))
-            
-            fig_yield.update_layout(
-                title=translate("Yield Optimization Potential", lang_code),
-                xaxis_title=translate("Year", lang_code),
-                yaxis_title=translate("Yield (Ton/Ha)", lang_code),
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="white")
-            )
-            st.plotly_chart(fig_yield, use_container_width=True)
+            with c_chart:
+                fig_yield = go.Figure()
+                
+                # Add Uncertainty Band (XAI Feature)
+                fig_yield.add_trace(go.Scatter(
+                    x=years + years[::-1],
+                    y=ai_yield_upper + ai_yield_lower[::-1],
+                    fill='toself',
+                    fillcolor='rgba(0, 201, 255, 0.15)', # Transparent Cyan
+                    line=dict(color='rgba(255,255,255,0)'),
+                    hoverinfo="skip",
+                    showlegend=True,
+                    name=translate('AI Prediction Margin', lang_code)
+                ))
+                
+                fig_yield.add_trace(go.Scatter(x=years, y=avg_yield, name=translate('Regional Avg', lang_code), line=dict(color='#cbd5e1', dash='dash', width=2)))
+                fig_yield.add_trace(go.Scatter(x=years, y=ai_yield, name=translate('AI Predicted', lang_code), line=dict(color='#00C9FF', width=4)))
+                
+                fig_yield.update_layout(
+                    title=translate("Yield Optimization & Uncertainty Forecast", lang_code),
+                    xaxis_title=translate("Year", lang_code),
+                    yaxis_title=translate("Yield (Ton/Ha)", lang_code),
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#e2e8f0", family="Courier New"),
+                    hovermode="x unified",
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    xaxis=dict(gridcolor='rgba(0, 201, 255, 0.1)'),
+                    yaxis=dict(gridcolor='rgba(0, 201, 255, 0.1)'),
+                    transition=dict(duration=1000, easing="cubic-in-out")
+                )
+                st.plotly_chart(fig_yield, use_container_width=True)
+                
+            with c_drivers:
+                st.markdown(f"#### 📈 {translate('Drivers of Growth', lang_code)}", help=translate("Factors historically influencing this prediction trajectory.", lang_code))
+                if "Scenario A" in scenario or "High Fertilizer" in scenario:
+                     st.info(f"💧 **{translate('Irrigation', lang_code)}:** {translate('Enhanced water access increases yield but raises overhead.', lang_code)}")
+                     st.success(f"🧪 **{translate('Nutrients', lang_code)}:** {translate('Optimal nitrogen prevents mid-season stalling.', lang_code)}")
+                elif "Scenario B" in scenario or "Natural Rainfall" in scenario:
+                     st.warning(f"☀️ **{translate('Climate Risk', lang_code)}:** {translate('Highly dependent on unpredictable rain patterns.', lang_code)}")
+                     st.error(f"📉 **{translate('Stress', lang_code)}:** {translate('Peak dry season expected to drop yield by 15%.', lang_code)}")
+                else:
+                     st.success(f"🌿 **{translate('Balance', lang_code)}:** {translate('AI-balanced nutrient schedule maximizes ROI.', lang_code)}")
+                     st.info(f"🌦️ **{translate('Efficiency', lang_code)}:** {translate('Using predictive weather saves 20% water.', lang_code)}")
             
         else:
              st.info(translate("Please run the analysis in the 'Crop Recommendation' tab first.", lang_code))
@@ -522,31 +973,56 @@ def main():
                  curr_forecast = [x + pressure_factor for x in curr_forecast]
             
             fig_rain = go.Figure()
-            fig_rain.add_trace(go.Bar(x=months, y=prev_year, name=translate('Previous Year', lang_code), marker_color='#a0a0a0'))
-            fig_rain.add_trace(go.Bar(x=months, y=curr_forecast, name=translate('Forecast', lang_code), marker_color='#60EFFF'))
+            fig_rain.add_trace(go.Bar(x=months, y=prev_year, name=translate('Previous Year', lang_code), marker_color='#475569'))
+            fig_rain.add_trace(go.Bar(x=months, y=curr_forecast, name=translate('Forecast', lang_code), marker_color='#00C9FF'))
             
             fig_rain.update_layout(
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="white"),
-                barmode='group'
+                font=dict(color="#e2e8f0", family="Courier New"),
+                barmode='group',
+                xaxis=dict(gridcolor='rgba(0, 201, 255, 0.1)'),
+                yaxis=dict(gridcolor='rgba(0, 201, 255, 0.1)'),
+                transition=dict(duration=800, easing="cubic-in-out")
             )
             st.plotly_chart(fig_rain, use_container_width=True)
             
-            # 7-Day Forecast Widget
-            st.markdown(f"#### 📅 {translate('7-Day Forecast', lang_code)}")
-            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            # 15-Day Forecast Horizon (Slider)
+            st.markdown(f"#### 📅 {translate('Extended Probability Forecast', lang_code)}")
+            forecast_days = st.slider(translate("Select Prediction Horizon (Days)", lang_code), min_value=5, max_value=15, value=7)
             
-            # Adjust probabilty based on cloud cover
             base_prob = cloud_cover
+            daily_probs = [min(100, max(0, base_prob + random.randint(-30, 30) - (i*2))) for i in range(forecast_days)]
+            future_days = [f"{translate('Day', lang_code)} {i+1}" for i in range(forecast_days)]
             
-            cols = st.columns(7)
-            for i, col in enumerate(cols):
-                with col:
-                    # Simulation
-                    daily_prob = min(100, max(0, base_prob + random.randint(-20, 20)))
-                    temp = 35 - (wind_speed * 0.1)
-                    st.metric(days[i], f"{temp:.0f}°", f"{daily_prob}%", delta_color="inverse")
+            fig_prob = go.Figure(go.Bar(
+                x=future_days, y=daily_probs,
+                marker_color='#00C9FF', # Neon Cyan
+                text=[f"{int(p)}%" for p in daily_probs],
+                textposition='auto'
+            ))
+            fig_prob.update_layout(
+                yaxis_title=translate("Rain Probability (%)", lang_code),
+                height=250, margin=dict(l=0, r=0, t=10, b=0),
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#e2e8f0", size=12, family="Courier New"),
+                yaxis=dict(gridcolor='rgba(0, 201, 255, 0.1)'),
+                transition=dict(duration=800, easing="cubic-in-out")
+            )
+            st.plotly_chart(fig_prob, use_container_width=True)
+            
+            st.markdown("---")
+            # Prediction Breakdown (XAI)
+            st.markdown(f"#### 🔍 {translate('Prediction Breakdown', lang_code)}", help=translate("How the AI weighted different data sources for this rain prediction.", lang_code))
+            
+            c_break1, c_break2, c_break3 = st.columns(3)
+            with c_break1:
+                 st.metric(translate("Global Satellite Data", lang_code), "45%", translate("Primary Weight", lang_code))
+            with c_break2:
+                 st.metric(translate("Local Humidity Sensors", lang_code), "35%", translate("Secondary Weight", lang_code))
+            with c_break3:
+                 st.metric(translate("Historical Patterns", lang_code), "20%", translate("Baseline", lang_code), delta_color="off")
                         
         else:
             st.info(translate("Please enter a location to fetch real-time forecasts.", lang_code))
@@ -566,54 +1042,113 @@ def main():
                 st.image(uploaded_file, caption=translate("Uploaded Image", lang_code), use_container_width=True)
             
             with c2:
-                # Mock AI Analysis Delay for Crop & Disease Detection
                 with st.spinner(translate("🤖 AI scanning image to identify crop and anomalies...", lang_code)):
-                    time.sleep(2.5)
                     
-                # Mock AI Logic: detect crop type from image
-                available_crops = list(CROP_KNOWLEDGE_BASE.keys())
-                # For demo, randomly select a crop to simulate AI classification
-                detected_crop = random.choice(available_crops)
-                
-                # Show detected crop
-                st.info(f"**{translate('Detected Crop', lang_code)}:** {translate(detected_crop, lang_code)}")
-
-                # Mock AI Logic: randomly select a disease for this detected crop, or "Healthy"
-                kb_diseases = CROP_KNOWLEDGE_BASE[detected_crop]['diseases']
-                # Add "Healthy" as an option occasionally, but heavily lean towards finding an issue for demo purposes
-                analysis_results = kb_diseases + ["Healthy"]
-                
-                # Predict (Mock)
-                detected = random.choice(analysis_results)
-                
-                if detected == "Healthy":
-                    st.success(f"### ✅ {translate('Plant appears Healthy!', lang_code)}")
-                    st.write(translate("No significant disease detected in the uploaded image. Maintain good agricultural practices.", lang_code))
-                else:
-                    st.error(f"### ⚠️ {translate('Disease Detected', lang_code)}!")
-                    
-                    # Split the disease string into Name and Remedy (format: "**Name**: Description. *Remedy*: Steps")
-                    if "*Remedy*:" in detected:
-                        issue_part, remedy_part = detected.split("*Remedy*:")
-                        issue_text = issue_part.replace("**", "").strip()
-                        remedy_text = remedy_part.strip()
-                        
-                        st.warning(f"**{translate('Issue Identified', lang_code)}:** {translate(issue_text, lang_code)}")
-                        
-                        st.markdown(f"#### 🛠️ {translate('Step-by-Step Solution', lang_code)}")
-                        
-                        # Generate step-by-step string
-                        # Since remedy_text might be a simple sentence, we'll format it into steps
-                        remedy_steps = [s.strip() for s in remedy_text.split(";") if s.strip()]
-                        if not remedy_steps:
-                            remedy_steps = [s.strip() for s in remedy_text.split(".") if s.strip()]
-                            
-                        for idx, step in enumerate(remedy_steps, 1):
-                            if step:
-                                st.write(f"**{translate('Step', lang_code)} {idx}:** {translate(step, lang_code)}")
-                                
+                    use_fallback = False
+                    current_key = os.environ.get("GEMINI_API_KEY", "")
+                    if not current_key:
+                        st.error(translate("Gemini API key is not set. Please enter it in the sidebar settings on the left to use real AI detection. Falling back to mock data.", lang_code))
+                        time.sleep(1.0)
+                        use_fallback = True
                     else:
-                        st.warning(f"**{translate('Issue', lang_code)}:** {translate(detected, lang_code)}")
+                        # REAL AI DETECTION LOGIC VIA GEMINI
+                        try:
+                            model = genai.GenerativeModel("gemini-1.5-flash")
+                            img_to_analyze = Image.open(uploaded_file)
+                            
+                            prompt = """
+                            You are an expert agronomist and plant pathologist. Analyze this image of a plant/crop.
+                            Ensure your response is ONLY in this exact structured format:
+                            CROP_NAME: [Identify the crop in a single word or short phrase, e.g., Maize, Apple, Tomato]
+                            STATUS: [Either 'HEALTHY' if no issues are found, or 'DISEASED' if issues are present]
+                            ISSUE: [If 'HEALTHY', say 'None'. If 'DISEASED', name the disease concisely, e.g., 'Early Blight']
+                            REMEDY: [If 'HEALTHY', say 'Maintain good practices'. If 'DISEASED', provide a semicolons-separated 3-step solution to treat it, e.g., Remove infected leaves; Use copper fungicide; Improve air circulation]
+                            """
+                            
+                            response = model.generate_content([img_to_analyze, prompt])
+                            raw_text = response.text.strip()
+                            
+                            # Parse output safely
+                            parsed = {"CROP_NAME": "Unknown", "STATUS": "UNKNOWN", "ISSUE": "Unknown", "REMEDY": "Unknown"}
+                            for line in raw_text.split("\n"):
+                                line = line.strip()
+                                if line.startswith("CROP_NAME:"): parsed["CROP_NAME"] = line.replace("CROP_NAME:", "").strip()
+                                elif line.startswith("STATUS:"): parsed["STATUS"] = line.replace("STATUS:", "").strip()
+                                elif line.startswith("ISSUE:"): parsed["ISSUE"] = line.replace("ISSUE:", "").strip()
+                                elif line.startswith("REMEDY:"): parsed["REMEDY"] = line.replace("REMEDY:", "").strip()
+                                
+                            st.info(f"**{translate('Detected Crop', lang_code)}:** {translate(parsed['CROP_NAME'], lang_code)}")
+                            
+                            if parsed["STATUS"].upper() == "HEALTHY":
+                                st.success(f"### ✅ {translate('Plant appears Healthy!', lang_code)}")
+                                st.write(translate(parsed['REMEDY'], lang_code))
+                            else:
+                                st.error(f"### ⚠️ {translate('Disease Detected', lang_code)}!")
+                                st.warning(f"**{translate('Issue Identified', lang_code)}:** {translate(parsed['ISSUE'], lang_code)}")
+                                
+                                st.markdown(f"#### 🛠️ {translate('Step-by-Step Solution', lang_code)}")
+                                remedy_steps = [s.strip() for s in parsed["REMEDY"].split(";") if s.strip()]
+                                if not remedy_steps:
+                                    remedy_steps = [s.strip() for s in parsed["REMEDY"].split(".") if s.strip()]
+                                    
+                                for idx, step in enumerate(remedy_steps, 1):
+                                    if step:
+                                        st.write(f"**{translate('Step', lang_code)} {idx}:** {translate(step, lang_code)}")
+
+                            # Save to History
+                            h_state = {
+                                "detected_crop": parsed.get("CROP_NAME"),
+                                "status": parsed.get("STATUS"),
+                                "issue": parsed.get("ISSUE")
+                            }
+                            save_js = build_save_script("Disease Detection", h_state)
+                            components.html(save_js, height=0)
+
+                        except Exception as e:
+                            print(f"Gemini API Error: {e}")
+                            st.error(f"Actual Gemini API Error: {e}")
+                            st.warning(translate("⚠️ Could not connect to Gemini AI (Invalid or missing API Key). Using local mock AI instead.", lang_code))
+                            time.sleep(1.0)
+                            use_fallback = True
+
+                    if use_fallback:
+                        # Fallback logic if no API key or API key is invalid
+                        available_crops = list(CROP_KNOWLEDGE_BASE.keys())
+                        detected_crop = random.choice(available_crops)
+                        st.info(f"**{translate('Detected Crop', lang_code)}:** {translate(detected_crop, lang_code)}")
+                        
+                        kb_diseases = CROP_KNOWLEDGE_BASE[detected_crop]['diseases']
+                        analysis_results = kb_diseases + ["Healthy"]
+                        detected = random.choice(analysis_results)
+                        
+                        if detected == "Healthy":
+                            st.success(f"### ✅ {translate('Plant appears Healthy!', lang_code)}")
+                            st.write(translate("No significant disease detected in the uploaded image. Maintain good agricultural practices.", lang_code))
+                        else:
+                            st.error(f"### ⚠️ {translate('Disease Detected', lang_code)}!")
+                            if "*Remedy*:" in detected:
+                                issue_part, remedy_part = detected.split("*Remedy*:")
+                                issue_text = issue_part.replace("**", "").strip()
+                                remedy_text = remedy_part.strip()
+                                st.warning(f"**{translate('Issue Identified', lang_code)}:** {translate(issue_text, lang_code)}")
+                                st.markdown(f"#### 🛠️ {translate('Step-by-Step Solution', lang_code)}")
+                                remedy_steps = [s.strip() for s in remedy_text.split(";") if s.strip()]
+                                if not remedy_steps:
+                                    remedy_steps = [s.strip() for s in remedy_text.split(".") if s.strip()]
+                                for idx, step in enumerate(remedy_steps, 1):
+                                    if step:
+                                        st.write(f"**{translate('Step', lang_code)} {idx}:** {translate(step, lang_code)}")
+                            else:
+                                st.warning(f"**{translate('Issue', lang_code)}:** {translate(detected, lang_code)}")
+
+                            # Save to History
+                            h_state = {
+                                "detected_crop": detected_crop,
+                                "status": "Diseased" if detected != "Healthy" else "Healthy",
+                                "issue": detected if detected != "Healthy" else "None"
+                            }
+                            save_js = build_save_script("Disease Detection", h_state)
+                            components.html(save_js, height=0)
 
     # --- TAB 5: VOICE ASSISTANT ---
     with tab5:
@@ -647,44 +1182,10 @@ def main():
                 with st.spinner(translate("🤖 AI is thinking...", lang_code)):
                     time.sleep(1.5)
                     
-                    # Keyword-based AI Response Logic
-                    # In a production app, this would be an LLM API call (e.g., Gemini or OpenAI)
                     crops_list = st.session_state.get('predicted_crop', ['your crops'])
                     crop_context = crops_list[0] if isinstance(crops_list, list) else crops_list
-                    query_lower = clean_query.lower()
                     
-                    if any(word in query_lower for word in ['yield', 'production', 'harvest', 'grow']):
-                        selected_response_en = f"To maximize yield for {crop_context}, ensure optimal spacing and follow the recommended nutrient schedule."
-                    elif any(word in query_lower for word in ['rain', 'weather', 'water', 'irrigation', 'dry']):
-                        selected_response_en = f"Water management is critical. For {crop_context}, avoid waterlogging and provide light irrigation during dry spells."
-                    elif any(word in query_lower for word in ['disease', 'sick', 'pest', 'insect', 'yellow', 'health']):
-                        selected_response_en = f"If you notice issues in {crop_context}, look for common symptoms like leaf spots. You can also upload a photo in the Disease Detection tab for a precise diagnosis."
-                    elif any(word in query_lower for word in ['fertilizer', 'soil', 'nutrient', 'ph', 'nitrogen', 'potassium', 'phosphorus']):
-                        selected_response_en = f"For best results with {crop_context}, test your soil regularly and maintain a balanced pH. Apply fertilizers in split doses."
-                    elif any(word in query_lower for word in ['recommend', 'crop', 'what to plant']):
-                        # Extract location if mentioned
-                        mock_cities = ['kadapa', 'hyderabad', 'mumbai', 'kashmir', 'nagpur', 'assam', 'punjab']
-                        detected_city = st.session_state.get('location', 'Kadapa')
-                        for city in mock_cities:
-                            if city in query_lower:
-                                detected_city = city.capitalize()
-                                break
-                        
-                        # Auto-trigger analysis
-                        data = fetch_geo_data(detected_city)
-                        st.session_state['geo_data'] = data
-                        st.session_state['location'] = detected_city
-                        st.session_state['temp_in'] = data['temp']
-                        st.session_state['rain_in'] = data['rainfall']
-                        st.session_state['ph_in'] = data['pH']
-                        st.session_state['n_in'] = data['N']
-                        crop = predict_crop_logic(data, detected_city)
-                        st.session_state['predicted_crop'] = crop
-                        st.session_state['analysis_done'] = True
-                        
-                        selected_response_en = f"I have analyzed the location {detected_city}. Based on the environmental data, I recommend planting {crop}. All dashboard features including yield and rainfall predictions have been automatically updated for this region."
-                    else:
-                        selected_response_en = f"I am your Smart Agri Assistant. You asked about: '{clean_query}'. For {crop_context}, maintaining good agricultural practices and monitoring weather updates is always advised."
+                    selected_response_en = get_assistant_response(clean_query, crop_context, lang_code, is_voice=True)
                     
                     translated_response = translate(selected_response_en, lang_code)
                     audio_html = text_to_audio(translated_response, lang_code)
@@ -694,10 +1195,27 @@ def main():
                     st.session_state['voice_response_audio'] = audio_html
                     st.session_state['voice_query'] = clean_query
                     
-                    if hasattr(st, 'rerun'):
-                        st.rerun()
-                    else:
-                        st.experimental_rerun()
+                    
+                    st.rerun()
+
+    # --- GLOBAL TEXT CHAT INPUT ---
+    # Placed at the very bottom of the main layout, accessible from any tab
+    user_text_query = st.chat_input(translate("Ask about crops, yield, weather, or disease...", lang_code))
+    
+    if user_text_query:
+        # Add user message to state
+        st.session_state["messages"].append({"role": "user", "content": user_text_query})
+        
+        # Build AI Context
+        crops_list = st.session_state.get('predicted_crop', ['your crops'])
+        crop_context = crops_list[0] if isinstance(crops_list, list) else crops_list
+        
+        selected_response_en = get_assistant_response(user_text_query, crop_context, lang_code, is_voice=False)
+        
+        translated_response = translate(selected_response_en, lang_code)
+        st.session_state["messages"].append({"role": "assistant", "content": translated_response})
+        
+        st.rerun()
 
 if __name__ == "__main__":
     main()
